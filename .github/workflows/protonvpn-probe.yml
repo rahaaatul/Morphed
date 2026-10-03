@@ -144,7 +144,9 @@ jobs:
             [[ -n "$want" ]] || continue
             idx=$(printf '%s\n' "$tags" | grep -n "^${want}$" | head -1 | cut -d: -f1)
             [[ -n "$idx" ]] || { echo "::warning::$want is not a published release tag"; continue; }
-            if [[ -z "$deepest" ]] || [[ "$idx" -gt "$deepest" ]]; then deepest="$idx; fi
+            if [[ -z "$deepest" ]] || [[ "$idx" -gt "$deepest" ]]; then
+              deepest="$idx"
+            fi
           done
           [[ -n "$deepest" ]] || deepest=3
           # A little past the deepest stated version, so a release that both sources
@@ -205,39 +207,40 @@ jobs:
             [[ -s "toolchain/$f" ]] || { echo "::error::$f missing from the toolchain cache"; exit 1; }
           done
 
+      - name: Resolve the download URL and size
+        id: asset
+        run: |
+          set -euo pipefail
+          # Resolved before the cache lookup, because the cache key needs the size.
+          read -r url size < <(gh api "repos/$UPSTREAM/releases/tags/${{ matrix.version }}" \
+            | jq -r '[.assets[] | select(.name | contains("vanilla-direct"))][0]
+                     | "\(.browser_download_url) \(.size)"')
+          [[ "$url" == "http"* && "$size" =~ ^[0-9]+$ ]] \
+            || { echo "::error::could not resolve the direct-release APK"; exit 1; }
+          echo "url=$url" >> "$GITHUB_OUTPUT"
+          echo "size=$size" >> "$GITHUB_OUTPUT"
+          echo "${{ matrix.version }} -> $(basename "$url") ($size bytes)"
+
       - name: Restore cached original
         id: orig
         uses: actions/cache/restore@v4
         with:
           path: original
-          # Keyed on the version and the size the upstream API reports, so a re-uploaded
-          # or corrected asset never reuses a stale download.
-          key: protonvpn-apk-${{ matrix.version }}-${{ steps.size.outputs.size }}
-
-      - name: Resolve the download URL and size
-        id: size
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          gh api "repos/${{ env.UPSTREAM }}/releases/tags/${{ matrix.version }}" \
-            | jq -r '[.assets[] | select(.name | contains("vanilla-direct"))][0]
-                     | "\(.browser_download_url) \(.size)"' \
-            | tee /dev/stderr | awk '{print "url=" $1; print "size=" $2}' >> "$GITHUB_OUTPUT"
+          # Keyed on the version and the size the upstream API reports, so a corrected
+          # or re-uploaded asset never reuses a stale download.
+          key: protonvpn-apk-${{ matrix.version }}-${{ steps.asset.outputs.size }}
 
       - name: Download the original
         if: steps.orig.outputs.cache-hit != 'true'
         run: |
           set -euo pipefail
           mkdir -p original
-          url=$(grep '^url=' "$GITHUB_OUTPUT" | cut -d= -f2-)
-          size=$(grep '^size=' "$GITHUB_OUTPUT" | cut -d= -f2-)
-          curl -fsSL -o original/app.apk "$url"
+          curl -fsSL -o original/app.apk '${{ steps.asset.outputs.url }}'
           got=$(stat -c%s original/app.apk)
           # A truncated download makes the patcher emit an empty result, which looks
           # identical to "this version is not supported" and drops it silently.
-          if [[ "$got" != "$size" ]]; then
-            echo "::error::truncated download: got $got, expected $size"
+          if [[ "$got" != '${{ steps.asset.outputs.size }}' ]]; then
+            echo "::error::truncated download: got $got, expected ${{ steps.asset.outputs.size }}"
             exit 1
           fi
           ls -la original
@@ -247,7 +250,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: original
-          key: protonvpn-apk-${{ matrix.version }}-${{ steps.size.outputs.size }}
+          key: protonvpn-apk-${{ matrix.version }}-${{ steps.asset.outputs.size }}
 
       - name: Build the options file
         run: |
