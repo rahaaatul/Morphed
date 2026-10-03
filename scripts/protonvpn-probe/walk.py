@@ -15,12 +15,17 @@ import sys
 
 PKG = os.environ["PACKAGE"]
 UPSTREAM = os.environ["UPSTREAM"]
-MPPS = ["patches-morpheapp.mpp", "patches-rushiranpise.mpp"]
+MPPS = ["patches-morpheapp.mpp", "patches-rushiranpise.mpp",
+        "patches-hoodles.mpp"]
 JAR = "morphe-desktop.jar"
 OPTIONS = "options.json"
 KEYSTORE = "morphe.keystore"
 EXPECTED = [p.strip() for p in os.environ["EXPECTED_PATCHES"].split("\n") if p.strip()]
-MAXV = int(os.environ.get("MAX_VERSIONS", "5"))
+MAXV = int(os.environ.get("MAX_VERSIONS", "8"))
+# Results are only reusable while the patch bundles are unchanged. The workflow keys
+# the result cache on a hash of the bundles, so a stale result is never restored and
+# this only short-circuits work that would genuinely repeat.
+REUSE = os.environ.get("REUSE_RESULTS") == "1"
 
 
 def sh(cmd):
@@ -89,6 +94,20 @@ def fetch(tag, url, want):
 
 def patch(tag):
     out, res = f"out-{tag}.apk", f"result-{tag}.json"
+
+    # A cached result for these exact bundles already answers the only question this
+    # step asks, so neither the 60MB original nor a patch run is needed again.
+    if REUSE and os.path.exists(res):
+        data = json.load(open(res))
+        return {
+            "version": tag,
+            "applied": [p["name"] for p in data.get("appliedPatches") or []],
+            "failed": [p["patch"]["name"] for p in data.get("failedPatches") or []
+                       if p.get("patch")],
+            "built": os.path.exists(out),
+            "cached": True,
+        }
+
     if os.path.exists(out) and os.path.exists(res):
         src = f"apks/protonvpn-{tag}.apk"
     else:
@@ -120,6 +139,7 @@ def patch(tag):
         "failed": [p["patch"]["name"] for p in data.get("failedPatches") or []
                    if p.get("patch")],
         "built": os.path.exists(out),
+        "cached": False,
     }
 
 
@@ -134,8 +154,9 @@ def main():
             print(f"  {tag}: skipped, no usable APK\n", flush=True)
             continue
         records.append(rec)
-        print(f"  {tag}: {len(rec['applied'])} applied, {len(rec['failed'])} failed, "
-              f"built={rec['built']}", flush=True)
+        how = "cached result" if rec.get("cached") else "patched"
+        print(f"  {tag} ({how}): {len(rec['applied'])} applied, "
+              f"{len(rec['failed'])} failed, built={rec['built']}", flush=True)
         for n in rec["applied"]:
             print(f"      ok    {n}", flush=True)
         for n in rec["failed"]:

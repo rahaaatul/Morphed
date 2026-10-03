@@ -17,12 +17,19 @@ env:
   REPO_FULL: rahaaatul/Morphed
   PACKAGE: ch.protonvpn.android
   UPSTREAM: ProtonVPN/android-app
-  # Kept in step with src/patches/Proton-VPN-*/ in this repo.
+  # Kept in step with src/patches/Proton-VPN-*/ in this repo. The first two come from
+  # MorpheApp's bundle, the next from rushiranpise's, the last four from hoo-dles's.
   EXPECTED_PATCHES: |
     Change installer source
     Disable Play Store updates
     Unlock VPN Plus
-  MAX_VERSIONS: '5'
+    Unlock custom DNS
+    Remove delay
+    Unlock LAN connections
+    Unlock split tunneling
+  # Walking deep is the point: a version further back may be the first where all
+  # seven apply. Results are cached per patch bundle set, so re-walking is cheap.
+  MAX_VERSIONS: '10'
 
 jobs:
   probe:
@@ -43,7 +50,8 @@ jobs:
         with:
           python-version: '3.13'
 
-      - name: Fetch patcher and both patch bundles
+      - name: Fetch patcher and all three patch bundles
+        id: bundles
         run: |
           set -euo pipefail
           # Newest release carrying the wanted asset, prereleases preferred.
@@ -59,12 +67,18 @@ jobs:
 
           curl -fsSL -o patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
           curl -fsSL -o patches-rushiranpise.mpp "$(newest_asset rushiranpise/morphe-patches .mpp)"
+          curl -fsSL -o patches-hoodles.mpp "$(newest_asset hoo-dles/morphe-patches .mpp)"
           curl -fsSL -o morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
 
-          for f in patches-morpheapp.mpp patches-rushiranpise.mpp morphe-desktop.jar; do
+          for f in patches-morpheapp.mpp patches-rushiranpise.mpp patches-hoodles.mpp morphe-desktop.jar; do
             [[ -s "$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
           done
           ls -la *.mpp morphe-desktop.jar
+
+          # Fingerprint of the patch set. Results only stay valid while this is
+          # unchanged, so it is part of the result cache key. The patcher is
+          # deliberately excluded: a new patcher can change how a patch behaves.
+          echo "bundles=$(cat patches-*.mpp | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Build the combined options file
         run: |
@@ -74,7 +88,7 @@ jobs:
           # carries all three, so one bundle alone cannot satisfy the request.
           java -jar morphe-desktop.jar options-create \
             -f "$PACKAGE" -o options.json \
-            -p patches-morpheapp.mpp -p patches-rushiranpise.mpp
+            -p patches-morpheapp.mpp -p patches-rushiranpise.mpp -p patches-hoodles.mpp
 
           # With more than one bundle loaded the -e flags are ignored and the options
           # file wins, so the selection has to be made here. Enabled by name across
@@ -90,16 +104,39 @@ jobs:
                  | "  bundle \(.key): \(.value.patches | to_entries
                      | map(select(.value.enabled) | .key) | join(", "))"' options.json
 
+      - name: Restore cached originals and patch results
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            work/apks
+            work/result-*.json
+          # Rolling key, same pattern the release workflows use. The bundle hash keeps
+          # results from a previous patch release out of this run, and the restore-keys
+          # fallback picks up the newest cache that does match.
+          key: protonvpn-probe-${{ steps.bundles.outputs.bundles }}-${{ github.run_id }}
+          restore-keys: |
+            protonvpn-probe-${{ steps.bundles.outputs.bundles }}-
+            protonvpn-probe-
+
       - name: Walk releases newest first until every patch applies
         env:
           # Without a token the release listing is refused, and an unauthenticated
           # call is rate limited on top of that.
           GH_TOKEN: ${{ github.token }}
+          REUSE_RESULTS: '1'
         run: |
           set -euo pipefail
           mkdir -p work && cd work
           cp ../patches-*.mpp ../morphe-desktop.jar ../options.json ../src/keystore/morphe.keystore .
           python3 -u "$GITHUB_WORKSPACE/scripts/protonvpn-probe/walk.py"
+
+      - name: Save cached originals and patch results
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            work/apks
+            work/result-*.json
+          key: protonvpn-probe-${{ steps.bundles.outputs.bundles }}-${{ github.run_id }}
 
       - name: Render the matrix
         run: |

@@ -34,12 +34,16 @@ for name in order:
 table = "\n".join(rows)
 
 shipped = [r["version"] for r in records if r["built"]]
+fresh = sum(1 for r in records if r.get("cached") is False)
 body = [
     "Automated probe of the Proton VPN patch matrix. Do not edit by hand.",
     "",
     f"- Package: `{data['package']}`",
-    f"- Versions built: "
-    f"{', '.join(f'`{v}`' for v in shipped) if shipped else '_none_'}",
+    f"- Versions recorded: "
+    f"{', '.join(f'`{r['version']}`' for r in records)}",
+    f"- Patched this run: {fresh}"
+    + (f", APKs available: {', '.join(f'`{v}`' for v in shipped)}"
+       if shipped else ", no APKs rebuilt (results came from cache)"),
     "",
     "## Patch | Supported Version",
     "",
