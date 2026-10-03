@@ -52,12 +52,10 @@ body = [
 partial = [(r["version"], [p for p in EXPECTED if p not in r["applied"]])
            for r in records]
 partial = [(v, m) for v, m in partial if m]
-if partial:
-    body += ["> [!WARNING]", "> **Not every patch applies to every version.**"]
-    for v, missing in partial:
-        listed = ", ".join(f"`{p}`" for p in missing)
-        body.append(f"> - `{v}` is missing {listed}.")
-    body.append("")
+for v, missing in partial:
+    listed = ", ".join(f"`{p}`" for p in missing)
+    # The subject is the version, so it stays "is missing" however many patches.
+    body += ["> [!WARNING]", f"> **`{v}`** is missing {listed}.", ""]
 
 if data["anchor"]:
     body += ["> [!TIP]", f"> Install `{data['anchor']}`. It is the newest version where "
