@@ -405,7 +405,10 @@ jobs:
               for f in "${failedfiles[@]}"; do
                 version=$(basename "$f" .txt | sed 's/^failed-//')
                 count=$(grep -c . "$f" || true)
-                [[ "$count" -gt 0 ]] && echo "- \`$version\` — $count patch(es)"
+                if [[ "$count" -gt 0 ]]; then
+                  echo "- \`$version\` — $count patch(es)"
+                  sed '/^$/d' "$f" | sort | sed 's/^/  - `/; s/$/`/'
+                fi
               done
               echo
             } >> release-notes.md

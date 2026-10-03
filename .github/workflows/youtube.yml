@@ -24,6 +24,7 @@ env:
   RELEASE_TAG: youtube
   MOPHE_REPO: MorpheApp/morphe-patches
   MOPHE_DESKTOP_REPO: MorpheApp/morphe-desktop
+  MICROG_REPO: MorpheApp/MicroG-RE
   ACTIONS_STEP_DEBUG: true
   ACTIONS_RUNNER_DEBUG: true
 
@@ -332,6 +333,23 @@ jobs:
           DOWNLOAD_BASE="https://github.com/${REPO_FULL}/releases/download"
 
           : > release-notes.md
+
+          # These apps need MicroG to run at all, and its tag moves constantly, so
+          # resolve the newest release here instead of baking in a link that rots.
+          # Prereleases win over stable, matching how the patcher is resolved.
+          microg_tag=$(curl -fsSL "https://api.github.com/repos/${MICROG_REPO}/releases?per_page=30" \
+            | jq -r '([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
+                     | (($all | map(select(.prerelease)) + ($all | map(select(.prerelease | not))))[0].tag_name) // empty')
+
+          if [[ -n "$microg_tag" ]]; then
+            {
+              echo "> [!IMPORTANT]"
+              echo "> **[MicroG](https://github.com/${MICROG_REPO}/releases/tag/${microg_tag})** is required to use this app"
+              echo
+            } >> release-notes.md
+          else
+            echo "::warning::Could not resolve the latest MicroG release tag"
+          fi
 
           if [[ ${#patchlists[@]} -gt 0 ]]; then
             total=$(cat "${patchlists[@]}" | sort -u | grep -c . || true)
