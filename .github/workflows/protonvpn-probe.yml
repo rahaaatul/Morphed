@@ -27,6 +27,11 @@ env:
     Remove delay
     Unlock LAN connections
     Unlock split tunneling
+  # These two live in every bundle's shared set and apply to any app, so a version
+  # carrying nothing else is not worth shipping.
+  GENERIC_PATCHES: |
+    Change installer source
+    Disable Play Store updates
   # Walking deep is the point: a version further back may be the first where all
   # seven apply. Results are cached per patch bundle set, so re-walking is cheap.
   MAX_VERSIONS: '10'
@@ -39,22 +44,73 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Set up JDK
-        uses: actions/setup-java@v5.2.0
-        with:
-          distribution: 'zulu'
-          java-version: '21'
+      - name: Ensure a JDK 21
+        run: |
+          set -euo pipefail
+          # The runner image already ships JDK 21. Pulling one with setup-java costs
+          # roughly 190MB per run for no benefit, and there is no way to cache the
+          # distribution out of that action, so use what is on the box and fail loudly
+          # if the image ever stops providing a new enough one.
+          v=$(java -version 2>&1 | head -1 | sed -nE 's/.*version "([0-9]+).*/\1/p')
+          if [[ -z "$v" ]] || [[ "$v" -lt 21 ]]; then
+            echo "::error::needs JDK 21 or newer, found ${v:-none}"
+            exit 1
+          fi
+          java -version
 
       - name: Set up Python
         uses: actions/setup-python@v6.1.0
         with:
           python-version: '3.13'
 
-      - name: Fetch patcher and all three patch bundles
-        id: bundles
+      - name: Resolve toolchain versions
+        id: toolchain
         run: |
           set -euo pipefail
-          # Newest release carrying the wanted asset, prereleases preferred.
+          # Newest release carrying a wanted asset, prereleases preferred. Only the
+          # tags are needed here, and they form the cache key, so a cached toolchain
+          # is used without downloading anything first.
+          newest_tag() {
+            curl -fsSL "https://api.github.com/repos/$1/releases?per_page=30" \
+              | jq -r '
+                  ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
+                  | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
+                  | .[0].tag_name'
+          }
+          mpp=$(newest_tag MorpheApp/morphe-patches)
+          rush=$(newest_tag rushiranpise/morphe-patches)
+          hoo=$(newest_tag hoo-dles/morphe-patches)
+          jar=$(newest_tag MorpheApp/morphe-desktop)
+          for t in "$mpp" "$rush" "$hoo" "$jar"; do
+            [[ "$t" != "null" && -n "$t" ]] || { echo "::error::could not resolve a release tag"; exit 1; }
+          done
+          echo "patches: $mpp $rush $hoo"
+          echo "patcher: $jar"
+          {
+            echo "key=protonvpn-toolchain-${mpp}-${rush}-${hoo}-${jar}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Restore cached toolchain
+        uses: actions/cache/restore@v4
+        with:
+          path: toolchain
+          key: ${{ steps.toolchain.outputs.key }}
+
+      - name: Download the toolchain if it was not cached
+        id: dl
+        run: |
+          set -euo pipefail
+          mkdir -p toolchain
+          need=0
+          for f in patches-morpheapp.mpp patches-rushiranpise.mpp patches-hoodles.mpp morphe-desktop.jar; do
+            [[ -s "toolchain/$f" ]] || need=1
+          done
+          if [[ $need -eq 0 ]]; then
+            echo "toolchain restored from cache"
+            ls -la toolchain
+            exit 0
+          fi
+
           newest_asset() {
             local repo=$1 ext=$2
             curl -fsSL "https://api.github.com/repos/${repo}/releases?per_page=30" \
@@ -65,30 +121,37 @@ jobs:
               | head -1
           }
 
-          curl -fsSL -o patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
-          curl -fsSL -o patches-rushiranpise.mpp "$(newest_asset rushiranpise/morphe-patches .mpp)"
-          curl -fsSL -o patches-hoodles.mpp "$(newest_asset hoo-dles/morphe-patches .mpp)"
-          curl -fsSL -o morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
+          curl -fsSL -o toolchain/patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
+          curl -fsSL -o toolchain/patches-rushiranpise.mpp "$(newest_asset rushiranpise/morphe-patches .mpp)"
+          curl -fsSL -o toolchain/patches-hoodles.mpp "$(newest_asset hoo-dles/morphe-patches .mpp)"
+          curl -fsSL -o toolchain/morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
 
           for f in patches-morpheapp.mpp patches-rushiranpise.mpp patches-hoodles.mpp morphe-desktop.jar; do
-            [[ -s "$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
+            [[ -s "toolchain/$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
           done
-          ls -la *.mpp morphe-desktop.jar
+          ls -la toolchain
+          echo "downloaded=1" >> "$GITHUB_OUTPUT"
 
-          # Fingerprint of the patch set. Results only stay valid while this is
-          # unchanged, so it is part of the result cache key. The patcher is
-          # deliberately excluded: a new patcher can change how a patch behaves.
-          echo "bundles=$(cat patches-*.mpp | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
+      - name: Save the toolchain cache
+        if: steps.dl.outputs.downloaded == '1'
+        uses: actions/cache/save@v4
+        with:
+          path: toolchain
+          key: ${{ steps.toolchain.outputs.key }}
 
       - name: Build the combined options file
+        id: bundles
         run: |
           set -euo pipefail
-          # Two bundles are required. The generic install-source and update patches live
-          # in MorpheApp's bundle and the premium unlock in rushiranpise's; neither repo
-          # carries all three, so one bundle alone cannot satisfy the request.
-          java -jar morphe-desktop.jar options-create \
+          # Three bundles are required. The generic install-source and update patches
+          # live in MorpheApp's, the premium unlock in rushiranpise's and the DNS, LAN,
+          # split-tunneling and delay unlocks in hoo-dles's. No single repo has all of
+          # them, so one bundle alone cannot satisfy the request.
+          java -jar toolchain/morphe-desktop.jar options-create \
             -f "$PACKAGE" -o options.json \
-            -p patches-morpheapp.mpp -p patches-rushiranpise.mpp -p patches-hoodles.mpp
+            -p toolchain/patches-morpheapp.mpp \
+            -p toolchain/patches-rushiranpise.mpp \
+            -p toolchain/patches-hoodles.mpp
 
           # With more than one bundle loaded the -e flags are ignored and the options
           # file wins, so the selection has to be made here. Enabled by name across
@@ -103,6 +166,11 @@ jobs:
           jq -r 'to_entries[]
                  | "  bundle \(.key): \(.value.patches | to_entries
                      | map(select(.value.enabled) | .key) | join(", "))"' options.json
+
+          # Fingerprint of the patch set. Results only stay valid while this is
+          # unchanged, so it is part of the result cache key. The patcher is
+          # deliberately excluded: a new patcher can change how a patch behaves.
+          echo "bundles=$(cat toolchain/patches-*.mpp | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Restore cached originals and patch results
         uses: actions/cache/restore@v4
@@ -127,7 +195,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work && cd work
-          cp ../patches-*.mpp ../morphe-desktop.jar ../options.json ../src/keystore/morphe.keystore .
+          cp ../toolchain/patches-*.mpp ../toolchain/morphe-desktop.jar \
+             ../options.json ../src/keystore/morphe.keystore .
           python3 -u "$GITHUB_WORKSPACE/scripts/protonvpn-probe/walk.py"
 
       - name: Save cached originals and patch results
