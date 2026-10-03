@@ -40,6 +40,10 @@ jobs:
   probe:
     name: Probe patch matrix
     runs-on: ubuntu-24.04
+    env:
+      # Every GitHub call in this job goes through gh api, which needs a token. Left
+      # anonymous, the calls get rate limited and curl exits 22 on a plain HTTP error.
+      GH_TOKEN: ${{ github.token }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -77,11 +81,12 @@ jobs:
           # tags are needed here, and they form the cache key, so a cached toolchain
           # is used without downloading anything first.
           newest_tag() {
-            curl -fsSL "https://api.github.com/repos/$1/releases?per_page=30" \
-              | jq -r '
-                  ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
-                  | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
-                  | .[0].tag_name'
+            # gh api's own --jq is gojq and takes no --arg, so pipe into jq when the
+            # filter needs a parameter.
+            gh api "repos/$1/releases?per_page=30" | jq -r '
+              ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
+              | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
+              | .[0].tag_name'
           }
           mpp=$(newest_tag MorpheApp/morphe-patches)
           rush=$(newest_tag rushiranpise/morphe-patches)
@@ -119,11 +124,10 @@ jobs:
 
           newest_asset() {
             local repo=$1 ext=$2
-            curl -fsSL "https://api.github.com/repos/${repo}/releases?per_page=30" \
-              | jq -r --arg ext "$ext" '
-                  ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
-                  | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
-                  | .[].assets[]? | select(.name | endswith($ext)) | .browser_download_url' \
+            gh api "repos/${repo}/releases?per_page=30" | jq -r --arg ext "$ext" '
+              ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
+              | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
+              | .[].assets[]? | select(.name | endswith($ext)) | .browser_download_url' \
               | head -1
           }
 
@@ -194,9 +198,6 @@ jobs:
 
       - name: Walk releases newest first until every patch applies
         env:
-          # Without a token the release listing is refused, and an unauthenticated
-          # call is rate limited on top of that.
-          GH_TOKEN: ${{ github.token }}
           REUSE_RESULTS: '1'
         run: |
           set -euo pipefail
