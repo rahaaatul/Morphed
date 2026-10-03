@@ -1,8 +1,8 @@
 name: Proton VPN probe
 
 # Probe only: works out which Proton VPN versions the current patch set can
-# actually patch, then renders the Patch | Supported Version matrix into an
-# issue so it can be reviewed as rendered markdown before it goes anywhere near
+# actually patch, then renders the Patch | Supported Version matrix into the run
+# summary so it can be reviewed as rendered markdown before it goes anywhere near
 # a release body. Not wired to a release.
 
 on:
@@ -12,7 +12,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 env:
   REPO_FULL: rahaaatul/Morphed
@@ -24,7 +23,6 @@ env:
     Disable Play Store updates
     Unlock VPN Plus
   MAX_VERSIONS: '5'
-  ISSUE_TITLE: 'Proton VPN patch matrix (probe)'
 
 jobs:
   probe:
@@ -109,21 +107,16 @@ jobs:
           cd work
           python3 "$GITHUB_WORKSPACE/scripts/protonvpn-probe/table.py"
 
-      - name: Publish the matrix to an issue
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Show the matrix in the run summary
         run: |
           set -euo pipefail
-          body=$(cat work/probe-body.md)
-          number=$(gh issue list --search "$ISSUE_TITLE in:title" --state all \
-                   --json number,title --jq '.[0].number // empty')
-          if [[ -n "$number" ]]; then
-            gh issue edit "$number" --body "$body" > /dev/null
-            echo "Updated issue #$number"
-          else
-            gh issue create --title "$ISSUE_TITLE" --body "$body" > /dev/null
-            echo "Created issue"
-          fi
+          # The repo has issues disabled, so the summary is the only place the matrix
+          # can be reviewed as rendered markdown without publishing anything.
+          {
+            echo "## Proton VPN patch matrix"
+            echo
+            cat work/probe-body.md
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7.0.1
