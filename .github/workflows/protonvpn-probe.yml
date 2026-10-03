@@ -39,6 +39,9 @@ env:
     Change installer source
     Disable Play Store updates
   MAX_VERSIONS: '10'
+  # The single ABI the APKs are stripped down to. Named once so the patcher and the
+  # recorded metadata cannot disagree about what was shipped.
+  ARCH: 'arm64-v8a'
 
 jobs:
   discover:
@@ -71,7 +74,7 @@ jobs:
 
       - name: Restore cached toolchain
         id: tc
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: toolchain
           key: pending
@@ -196,7 +199,7 @@ jobs:
           echo "bundles=$(cat toolchain/patches-*.mpp | sha256sum | cut -c1-16)" >> "$GITHUB_OUTPUT"
 
       - name: Save the toolchain cache
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: toolchain
           key: ${{ steps.plan.outputs.toolchain_key }}
@@ -226,7 +229,7 @@ jobs:
           python-version: '3.13'
 
       - name: Restore cached toolchain
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: toolchain
           key: ${{ needs.discover.outputs.toolchain_key }}
@@ -254,7 +257,7 @@ jobs:
 
       - name: Restore cached original
         id: orig
-        uses: actions/cache/restore@v4
+        uses: actions/cache/restore@v6
         with:
           path: original
           # Keyed on the version and the size the upstream API reports, so a corrected
@@ -278,7 +281,7 @@ jobs:
 
       - name: Save the original
         if: steps.orig.outputs.cache-hit != 'true'
-        uses: actions/cache/save@v4
+        uses: actions/cache/save@v6
         with:
           path: original
           key: protonvpn-apk-${{ matrix.version }}-${{ steps.asset.outputs.size }}
@@ -322,7 +325,7 @@ jobs:
             --patches=toolchain/patches-rushiranpise.mpp \
             --patches=toolchain/patches-hoodles.mpp \
             --options-file=options.json \
-            --striplibs=arm64-v8a \
+            --striplibs="$ARCH" \
             --out="out-${{ matrix.version }}.apk" \
             -r="result-${{ matrix.version }}.json" \
             --keystore=src/keystore/morphe.keystore \
