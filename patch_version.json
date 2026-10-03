@@ -8,14 +8,6 @@
             "repo": "reddit",
             "package": "com.reddit.frontpage",
             "desktop": "1.18.0-dev.6",
-            "versions": [
-              "2026.10.0",
-              "2026.14.0",
-              "2026.24.0",
-              "2026.37.0",
-              "2026.38.0",
-              "2026.39.0"
-            ],
             "patches_applied": [
               "App icon",
               "Change installer source",
@@ -37,6 +29,14 @@
               "Show view count",
               "Spoof signature",
               "Start as guest"
+            ],
+            "versions": [
+              "2026.39.0",
+              "2026.38.0",
+              "2026.37.0",
+              "2026.24.0",
+              "2026.14.0",
+              "2026.10.0"
             ]
           },
           "youtube": {
