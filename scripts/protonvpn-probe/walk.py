@@ -95,7 +95,7 @@ def patch(tag):
         url, size = asset(tag)
         if not url:
             return None
-        src = fetch(tag, url, size)
+        src, _ = fetch(tag, url, size)
         if not src:
             return None
     if not (os.path.exists(out) and os.path.exists(res)):
