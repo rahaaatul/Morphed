@@ -337,7 +337,12 @@ jobs:
           # With more than one bundle loaded the -e flags are ignored and the options
           # file wins, so the selection has to be made here. Enabled by name across
           # every bundle so it does not matter which bundle each patch landed in.
-          want=$(printf '%s\n' "$EXPECTED_PATCHES" | jq -R . | jq -sc .)
+          # Read as raw text, then decode: a JSON array is parsed, anything else is
+          # split on newlines. Reading the list as raw lines instead turned the array
+          # into a single element holding the whole array as text, and enabled nothing.
+          want=$(printf '%s' "$EXPECTED_PATCHES" | jq -Rsc '
+            (if startswith("[") then (fromjson? // []) else [splits("\n")] end)
+            | map(select(length > 0))')
           jq --argjson want "$want" '
             [.[] | .patches |= with_entries(
                if (.key as $k | $want | index($k)) then .value.enabled = true else . end)]
