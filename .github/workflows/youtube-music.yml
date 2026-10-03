@@ -7,6 +7,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 concurrency:
   group: youtube-music
@@ -355,3 +356,32 @@ jobs:
           removeArtifacts: true
           prerelease: false
           makeLatest: false
+
+      - name: Clean up run artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+
+          # The APKs now live on the release, so the run artifacts are redundant
+          # and can be several hundred megabytes. Retention is only a backstop.
+          ids=$(gh api "repos/${REPO_FULL}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+            --paginate --jq '.artifacts[].id')
+
+          if [[ -z "$ids" ]]; then
+            echo "No artifacts to remove"
+            exit 0
+          fi
+
+          count=0
+          while read -r id; do
+            [[ -n "$id" ]] || continue
+            if gh api "repos/${REPO_FULL}/actions/artifacts/${id}" --method DELETE; then
+              count=$((count + 1))
+            else
+              echo "::warning::Could not delete artifact ${id}"
+            fi
+          done <<< "$ids"
+
+          echo "Removed ${count} artifact(s) from this run"
