@@ -22,8 +22,11 @@ env:
   REPO: reddit
   ARCH: arm64-v8a
   RELEASE_TAG: reddit
-  MOPHE_REPO: MorpheApp/morphe-patches
-  MOPHE_DESKTOP_REPO: MorpheApp/morphe-desktop
+  # Space separated app versions to never build, see the discovery step.
+  EXCLUDE_VERSIONS: '2024.02.0'
+  MORPHE_OWNER: MorpheApp
+  MORPHE_PATCHES_REPO: morphe-patches
+  MORPHE_DESKTOP_REPO: morphe-desktop
   ACTIONS_STEP_DEBUG: true
   ACTIONS_RUNNER_DEBUG: true
 
@@ -34,6 +37,7 @@ jobs:
     outputs:
       matrix: ${{ steps.versions.outputs.matrix }}
       channels: ${{ steps.versions.outputs.channels }}
+      reused: ${{ steps.versions.outputs.reused }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
       desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
     steps:
@@ -61,10 +65,10 @@ jobs:
             curl -fsSL "https://api.github.com/repos/$1/releases?per_page=30"
           }
 
-          patches_url=$(releases "$MOPHE_REPO" \
+          patches_url=$(releases "$MORPHE_OWNER/$MORPHE_PATCHES_REPO" \
             | jq -r "$order"' | .[].assets[]? | select(.name | endswith(".mpp")) | .browser_download_url' | head -1)
 
-          desktop_url=$(releases "$MOPHE_DESKTOP_REPO" \
+          desktop_url=$(releases "$MORPHE_OWNER/$MORPHE_DESKTOP_REPO" \
             | jq -r "$order"' | .[].assets[]? | select(.name | endswith(".jar")) | .browser_download_url' | head -1)
 
           [[ -n "$patches_url" && "$patches_url" != "null" ]] || { echo "No .mpp asset found"; exit 1; }
@@ -82,6 +86,10 @@ jobs:
 
       - name: List supported versions
         id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_FILE: patch_version.json
+          patches_ver: ${{ steps.meta.outputs.patches_ver }}
         run: |
           set -euo pipefail
           # -x includes experimental app versions, without it only stable targets are listed.
@@ -97,8 +105,17 @@ jobs:
           versions=$(sed -nE 's/^[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' versions-raw.txt)
           stable=$(sed -nE 's/^[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' versions-stable.txt)
 
+          # Locally unwanted targets, space separated. Morphe still lists them but
+          # they either patch to near-nothing or are too old to be worth shipping.
+          for bad in $EXCLUDE_VERSIONS; do
+            if printf '%s\n' "$versions" | grep -qxF "$bad"; then
+              echo "Excluding $bad"
+              versions=$(printf '%s\n' "$versions" | grep -vxF "$bad")
+            fi
+          done
+
           if [[ -z "$versions" ]]; then
-            echo "No supported versions found for $PACKAGE"
+            echo "No supported versions left for $PACKAGE"
             exit 1
           fi
 
@@ -107,9 +124,29 @@ jobs:
           echo "Stable targets:"
           echo "${stable:-<none>}"
 
+          # patch_version.json in the repo root is the source of truth for what has
+          # already been built. Entries are keyed source > owner > repo > tag > app, so
+          # a new patch tag has no entry of its own and every version rebuilds.
+          done_versions=""
+          if [[ -f "$STATE_FILE" ]]; then
+            done_versions=$(jq -r --arg o "$MORPHE_OWNER" --arg r "$MORPHE_PATCHES_REPO" \
+                                  --arg t "$patches_ver" --arg app "$APP_SLUG" \
+                                  '(.source[$o][$r][$t][$app].versions // [])[]' \
+                                  "$STATE_FILE" 2>/dev/null || true)
+          fi
+
+          if [[ -n "$done_versions" ]]; then
+            echo "State has $(grep -c . <<< "$done_versions") version(s) already built from v${patches_ver}"
+          else
+            echo "Nothing on record for v${patches_ver}, building all versions"
+            done_versions=""
+          fi
+
           matrix='{"include":['
           channels='{'
+          reused='['
           first=1
+          first_reuse=1
           while read -r v; do
             [[ -n "$v" ]] || continue
 
@@ -120,17 +157,28 @@ jobs:
             fi
 
             [[ $first -eq 1 ]] || { matrix+=','; channels+=','; }
-            matrix+="{\"version\":\"$v\",\"channel\":\"$channel\"}"
             channels+="\"$v\":\"$channel\""
+
+            if printf '%s\n' "$done_versions" | grep -qxF "$v"; then
+              echo "Skipping $v, already published from v${patches_ver}"
+              [[ $first_reuse -eq 1 ]] || reused+=','
+              reused+="\"$v\""
+              first_reuse=0
+            else
+              matrix+="{\"version\":\"$v\",\"channel\":\"$channel\"}"
+            fi
             first=0
           done <<< "$versions"
           matrix+=']}'
           channels+='}'
+          reused+=']'
 
           echo "$matrix" | jq . > /dev/null
           echo "$channels" | jq . > /dev/null
+          echo "$reused" | jq . > /dev/null
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "channels=$channels" >> "$GITHUB_OUTPUT"
+          echo "reused=$reused" >> "$GITHUB_OUTPUT"
 
       - name: Generate options file
         run: |
@@ -291,11 +339,7 @@ jobs:
           # Patch names for the release body. Every leg uses the same patch bundle
           # and options, so these are expected to match across versions.
           jq -r '.appliedPatches[].name' result.json > "applied-${{ matrix.version }}.txt"
-          # failedPatches nests the name under .patch, unlike appliedPatches.
-          jq -r '.failedPatches[].patch.name' result.json > "failed-${{ matrix.version }}.txt"
           echo "applied patches: $(wc -l < "applied-${{ matrix.version }}.txt")"
-          echo "failed patches: $(wc -l < "failed-${{ matrix.version }}.txt")"
-          cat "failed-${{ matrix.version }}.txt"
 
           ls -la "$out"
 
@@ -314,14 +358,6 @@ jobs:
           path: ./applied-${{ matrix.version }}.txt
           retention-days: 1
           if-no-files-found: error
-
-      - name: Upload failed patch list
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: failed-${{ matrix.version }}
-          path: ./failed-${{ matrix.version }}.txt
-          retention-days: 1
-          if-no-files-found: warn
 
   release:
     name: Publish release
@@ -347,27 +383,39 @@ jobs:
           path: applied
           merge-multiple: true
 
-      - name: Download failed patch lists
-        uses: actions/download-artifact@v8.0.1
-        with:
-          pattern: failed-*
-          path: failed
-          merge-multiple: true
-
       - name: Verify and generate release body
         env:
+          GH_TOKEN: ${{ github.token }}
           PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
           DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
           CHANNELS: ${{ needs.discover.outputs.channels }}
+          REUSED: ${{ needs.discover.outputs.reused }}
         run: |
           set -euo pipefail
+
+          # Versions skipped in discovery are already on the release and were built
+          # from this same patch set. The publish step clears existing assets, so
+          # fetch them again or they would vanish from the release.
+          reused=$(jq -r '.[]' <<< "$REUSED" | grep -c . || true)
+          if [[ "$reused" -gt 0 ]]; then
+            echo "Reusing $reused already-published APK(s)"
+            while read -r v; do
+              [[ -n "$v" ]] || continue
+              name="${APP_SLUG}-${v}-${ARCH}.apk"
+              if gh release download "$RELEASE_TAG" --repo "$REPO_FULL" \
+                   --pattern "$name" --dir release --clobber 2>/dev/null; then
+                echo "  reused $name"
+              else
+                echo "::warning::Could not reuse $name, it will be dropped from the release"
+              fi
+            done < <(jq -r '.[]' <<< "$REUSED")
+          fi
 
           # sort -Vr so the newest version leads the table, ordering version
           # components numerically rather than lexically. An empty glob yields an
           # empty array, so the guard below still fires.
           mapfile -t apks < <(find release -maxdepth 1 -name '*.apk' | sort -Vr)
           patchlists=(applied/*.txt)
-          failedlists=(failed/*.txt)
 
           if [[ ${#apks[@]} -eq 0 ]]; then
             echo "::error::No APKs were produced by any patch job"
@@ -388,29 +436,6 @@ jobs:
               cat "${patchlists[@]}" | sort -u | sed '/^$/d' | sed 's/^/- `/; s/$/`/'
               echo
               echo "</details>"
-              echo
-            } >> release-notes.md
-          fi
-
-          # Older targets match fewer patches. Say so rather than letting the
-          # applied list imply the build is fully patched.
-          shopt -s nullglob
-          failedfiles=("${failedlists[@]}")
-          shopt -u nullglob
-          if [[ ${#failedfiles[@]} -gt 0 ]]; then
-            {
-              echo "### Not patched"
-              echo
-              echo "Some targets predate the current patch set, so those patches did not apply:"
-              echo
-              for f in "${failedfiles[@]}"; do
-                version=$(basename "$f" .txt | sed 's/^failed-//')
-                count=$(grep -c . "$f" || true)
-                if [[ "$count" -gt 0 ]]; then
-                  echo "- \`$version\` — $count patch(es)"
-                  sed '/^$/d' "$f" | sort | sed 's/^/  - `/; s/$/`/'
-                fi
-              done
               echo
             } >> release-notes.md
           fi
@@ -452,6 +477,69 @@ jobs:
           removeArtifacts: true
           prerelease: false
           makeLatest: false
+
+      - name: Record patch state
+        env:
+          GH_TOKEN: ${{ github.token }}
+          STATE_FILE: patch_version.json
+          PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
+          DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
+        run: |
+          set -euo pipefail
+
+          # Derive from the APKs actually on the release rather than from the
+          # matrix, so reused versions are recorded too.
+          mapfile -t versions < <(find release -maxdepth 1 -name '*.apk' \
+            | sed "s|.*/${APP_SLUG}-\(.*\)-${ARCH}\.apk$|\1|" | sort -Vr)
+          if [[ ${#versions[@]} -eq 0 ]]; then
+            echo "Nothing published, leaving $STATE_FILE alone"
+            exit 0
+          fi
+
+          # Merge into whatever main currently holds. The three workflows share this
+          # file and can finish at the same time, so rebase onto origin before writing
+          # rather than clobbering another app's entry.
+          for attempt in 1 2 3 4 5; do
+            git fetch origin main
+            git checkout -q -B main origin/main
+
+            versions_json=$(printf '%s\n' "${versions[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+
+            jq --arg o "$MORPHE_OWNER" --arg r "$MORPHE_PATCHES_REPO" \
+               --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \
+               --arg org "$ORG" --arg repo "$REPO" \
+               --arg pkg "$PACKAGE" --arg desktop "$DESKTOP_VER" \
+               --argjson versions "$versions_json" \
+               '.source[$o][$r][$t][$app] = {
+                  org: $org,
+                  repo: $repo,
+                  package: $pkg,
+                  desktop: $desktop,
+                  versions: $versions
+                }' "$STATE_FILE" > "$STATE_FILE.tmp"
+            mv "$STATE_FILE.tmp" "$STATE_FILE"
+            jq . "$STATE_FILE" > /dev/null
+
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add "$STATE_FILE"
+
+            if git diff --cached --quiet; then
+              echo "$STATE_FILE already current"
+              exit 0
+            fi
+
+            git commit -q -m "Record ${APP_SLUG} build from Morphe patches v${PATCHES_VER}"
+            if git push -q origin HEAD:main; then
+              echo "Committed $STATE_FILE"
+              exit 0
+            fi
+
+            echo "Push conflicted (attempt $attempt), retrying on fresh main"
+            sleep 5
+          done
+
+          echo "::error::Could not commit $STATE_FILE after 5 attempts"
 
       - name: Clean up run artifacts
         if: always()
