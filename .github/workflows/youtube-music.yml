@@ -1,4 +1,4 @@
-name: Experimental APKMirror YouTube Music
+name: YouTube Music
 
 on:
   workflow_dispatch:
@@ -30,7 +30,7 @@ env:
 jobs:
   discover:
     name: Discover supported versions
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.versions.outputs.matrix }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
@@ -122,7 +122,7 @@ jobs:
           jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | tee enabled.txt | wc -l
 
       - name: Upload patcher artifacts
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: morphe-toolchain
           path: |
@@ -135,7 +135,7 @@ jobs:
   patch:
     name: Patch ${{ matrix.version }}
     needs: discover
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     continue-on-error: false
     strategy:
       fail-fast: false
@@ -161,7 +161,7 @@ jobs:
           grep -o 'apkmirror-downloader@[0-9.]*' bun.lock | head -1
 
       - name: Download patcher artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           name: morphe-toolchain
 
@@ -245,7 +245,7 @@ jobs:
           ls -la "$out"
 
       - name: Upload patched APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: apk-${{ matrix.version }}
           path: ./release/${{ env.APP_SLUG }}-${{ matrix.version }}-${{ env.ARCH }}.apk
@@ -253,7 +253,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload applied patch list
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7.0.1
         with:
           name: applied-${{ matrix.version }}
           path: ./applied-${{ matrix.version }}.txt
@@ -264,21 +264,21 @@ jobs:
     name: Publish release
     needs: [discover, patch]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
       - name: Download patched APKs
         id: collect
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: apk-*
           path: release
           merge-multiple: true
 
       - name: Download applied patch lists
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8.0.1
         with:
           pattern: applied-*
           path: applied
@@ -304,10 +304,7 @@ jobs:
           APKMD_VER=$(curl -fsSL "https://registry.npmjs.org/apkmirror-downloader/latest" | jq -r '.version')
           DOWNLOAD_BASE="https://github.com/${REPO_FULL}/releases/download"
 
-          {
-            echo "## ${APP_TITLE}"
-            echo
-          } > release-notes.md
+          : > release-notes.md
 
           if [[ ${#patchlists[@]} -gt 0 ]]; then
             total=$(cat "${patchlists[@]}" | sort -u | grep -c . || true)
@@ -350,11 +347,11 @@ jobs:
         uses: ncipollo/release-action@v1.21.0
         with:
           tag: ${{ env.RELEASE_TAG }}
-          name: ${{ env.APP_SLUG }} (Morphe)
+          name: ${{ env.APP_TITLE }}
           bodyFile: release-notes.md
           artifacts: |
             release/*.apk
           allowUpdates: true
           removeArtifacts: true
-          prerelease: true
+          prerelease: false
           makeLatest: false
