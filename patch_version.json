@@ -30,6 +30,7 @@
               "Spoof signature",
               "Start as guest"
             ],
+            "patches_failed": [],
             "versions": [
               "2026.39.0",
               "2026.38.0",
