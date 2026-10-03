@@ -137,8 +137,10 @@ jobs:
 
           # Cover every release from the newest down to the oldest of the two stated
           # versions, so the matrix reaches a version both sources actually claim.
+          # One tag per line. jq -r on a constructed array still prints JSON, brackets
+          # and all, which is why this iterates rather than wrapping in [].
           tags=$(gh api "repos/$UPSTREAM/releases?per_page=40" \
-                 | jq -r '[.[] | select(.draft == false) | .tag_name]')
+                 | jq -r '.[] | select(.draft == false) | .tag_name')
           deepest=""
           for want in "$rush_rec" "$hoo_rec"; do
             [[ -n "$want" ]] || continue
@@ -152,7 +154,11 @@ jobs:
           # A little past the deepest stated version, so a release that both sources
           # already cover is visible next to the ones they do not.
           want_n=$(( deepest + 2 ))
-          [[ "$want_n" -gt "$MAX_VERSIONS" ]] && want_n=$MAX_VERSIONS
+          # Written as an if rather than [[ ... ]] && x=y, because a false test makes
+          # the whole && list non-zero and set -e would abort the step.
+          if [[ "$want_n" -gt "$MAX_VERSIONS" ]]; then
+            want_n=$MAX_VERSIONS
+          fi
           echo "covering the newest $want_n release(s) to reach $rush_rec and $hoo_rec"
 
           matrix=$(printf '%s\n' "$tags" | head -"$want_n" \
