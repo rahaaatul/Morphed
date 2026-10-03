@@ -183,6 +183,7 @@ jobs:
           # let the patch job skip its work, so a no-op run stays green.
           if [[ $first_matrix -eq 1 ]]; then
             matrix+='{"noop":true}'
+            nothing_to_build=1
           fi
           matrix+=']}'
           channels+='}'
@@ -195,8 +196,10 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "channels=$channels" >> "$GITHUB_OUTPUT"
           echo "reused=$reused" >> "$GITHUB_OUTPUT"
+          echo "nothing_to_build=${nothing_to_build:-0}" >> "$GITHUB_OUTPUT"
 
       - name: Generate options file
+        if: steps.versions.outputs.nothing_to_build != '1'
         run: |
           set -euo pipefail
           # Generated fresh from the downloaded patches so it never goes stale.
@@ -208,6 +211,9 @@ jobs:
           jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | tee enabled.txt | wc -l
 
       - name: Upload patcher artifacts
+        # Nothing to patch means no matrix job will read the toolchain, so uploading it
+        # would leave tens of megabytes for the artifact retention window to expire.
+        if: steps.versions.outputs.nothing_to_build != '1'
         uses: actions/upload-artifact@v7.0.1
         with:
           name: morphe-toolchain
@@ -447,7 +453,9 @@ jobs:
   release:
     name: Publish release
     needs: [discover, patch]
-    if: always()
+    # Nothing was patched, so the release already holds the right APKs and body. Running
+    # would re-download every APK just to write an identical body back over them.
+    if: always() && needs.discover.outputs.nothing_to_build != '1'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout
