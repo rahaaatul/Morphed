@@ -32,6 +32,11 @@ HOODLES_RECOMMENDED = os.environ.get("HOODLES_RECOMMENDED", "").strip()
 STABLE = set(json.loads(os.environ.get("STABLE_VERSIONS", "[]")))
 EXPERIMENTAL = set(json.loads(os.environ.get("EXPERIMENTAL_VERSIONS", "[]")))
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "")
+# The download cell shows an icon linking to the asset instead of the file name. Served
+# from the repository rather than attached to the release so one file covers every
+# release. ICON_WIDTH keeps a 512px source from dominating the table.
+ICON_URL = os.environ.get("ICON_URL", "").strip()
+ICON_WIDTH = os.environ.get("ICON_WIDTH", "32")
 REPO_FULL = os.environ.get("REPO_FULL", "")
 ARCH = os.environ.get("ARCH", "arm64-v8a")
 TOOLS = json.loads(os.environ.get("TOOLS", "[]"))
@@ -150,14 +155,19 @@ if bool(RELEASE_TAG) != bool(REPO_FULL):
 if RELEASE_TAG and REPO_FULL:
     body += ["", "## Downloads", "",
              "| Version | Channel | Arch | Size | Download |",
-             "| --- | --- | --- | --- | --- |"]
+             "| :-------: | :-------: | :---------: | :-----: | :------------------------: |"]
     for r in kept:
         name = f"{RELEASE_TAG}-v{r['version']}.apk"
         url = f"https://github.com/{REPO_FULL}/releases/download/{RELEASE_TAG}/{name}"
         channel = channel_of(r["version"])
         size = fmt_size(r["size"]) if r["size"] else "&mdash;"
         arch = r["arch"] or ARCH
-        body.append(f"| `{r['version']}` | {channel} | {arch} | {size} | [{name}]({url}) |")
+        if ICON_URL:
+            cell = (f'<a href="{url}"><img src="{ICON_URL}" width="{ICON_WIDTH}" '
+                    f'alt="Download {r["version"]}"></a>')
+        else:
+            cell = f"[{name}]({url})"
+        body.append(f"| `{r['version']}` | {channel} | {arch} | {size} | {cell} |")
 
 if TOOLS:
     body += ["", "## Tools used", "", "| Tool | Version |", "| --- | --- |"]

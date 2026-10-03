@@ -422,6 +422,11 @@ jobs:
       TOOLS: ${{ needs.discover.outputs.tools }}
       EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
       RELEASE_TAG: 'proton-vpn'
+      # The download cell links an icon rather than the file name. Served from the
+      # repository so one copy serves every release; left empty it falls back to the
+      # file name.
+      ICON_URL: https://raw.githubusercontent.com/rahaaatul/Morphed/main/.github/icons/download.png
+      ICON_WIDTH: '32'
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
