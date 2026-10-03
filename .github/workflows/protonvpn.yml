@@ -111,7 +111,7 @@ jobs:
           done
           echo "patches: $mpp $doom $hoo"
           echo "patcher: $jar"
-          echo "toolchain_key=protonvpn-toolchain-${mpp}-${doom}-${hoo}-${jar}" \
+          echo "toolchain_key=protonvpn-toolchain-v2-${mpp}-${doom}-${hoo}-${jar}" \
             >> "$GITHUB_OUTPUT"
 
           mkdir -p toolchain

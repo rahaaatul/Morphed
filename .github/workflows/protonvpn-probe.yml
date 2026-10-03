@@ -100,7 +100,7 @@ jobs:
           for t in "$mpp" "$rush" "$hoo" "$jar"; do
             [[ "$t" != "null" && -n "$t" ]] || { echo "::error::could not resolve a release tag"; exit 1; }
           done
-          key="protonvpn-toolchain-${mpp}-${rush}-${hoo}-${jar}"
+          key="protonvpn-toolchain-v2-${mpp}-${rush}-${hoo}-${jar}"
           {
             echo "toolchain_key=$key"
           } >> "$GITHUB_OUTPUT"
@@ -110,10 +110,10 @@ jobs:
           mkdir -p toolchain
           if [[ ! -s toolchain/morphe-desktop.jar ]]; then
             curl -fsSL -o toolchain/patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
-            curl -fsSL -o toolchain/patches-rushiranpise.mpp "$(newest_asset "$RUSH_OWNER_REPO" .mpp)"
+            curl -fsSL -o toolchain/patches-doom.mpp "$(newest_asset "$RUSH_OWNER_REPO" .mpp)"
             curl -fsSL -o toolchain/patches-hoodles.mpp "$(newest_asset "$HOODLES_OWNER_REPO" .mpp)"
             curl -fsSL -o toolchain/morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
-            for f in patches-morpheapp.mpp patches-rushiranpise.mpp patches-hoodles.mpp morphe-desktop.jar; do
+            for f in patches-morpheapp.mpp patches-doom.mpp patches-hoodles.mpp morphe-desktop.jar; do
               [[ -s "toolchain/$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
             done
           fi
@@ -126,7 +126,7 @@ jobs:
               --patches="toolchain/$1" 2>/dev/null \
               | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p' | head -1
           }
-          doom_rec=$(recommended patches-rushiranpise.mpp)
+          doom_rec=$(recommended patches-doom.mpp)
           hoo_rec=$(recommended patches-hoodles.mpp)
           echo "Doom recommends: ${doom_rec:-unknown}"
           echo "hoo-dles recommends: ${hoo_rec:-unknown}"
@@ -145,7 +145,7 @@ jobs:
           }
           patches=$(
             {
-              recommended patches-rushiranpise.mpp
+              recommended patches-doom.mpp
               recommended patches-hoodles.mpp
               printf '%s\n' "$EXTRA_PATCHES"
             } | sed '/^$/d' | awk '!seen[$0]++' | jq -R . | jq -sc .
@@ -194,7 +194,7 @@ jobs:
             # into a step failure.
             if [[ -n "${1:-}" ]]; then flag=("$1"); fi
             local f
-            for f in patches-morpheapp patches-rushiranpise patches-hoodles; do
+            for f in patches-morpheapp patches-doom patches-hoodles; do
               java -jar toolchain/morphe-desktop.jar list-versions "${flag[@]}" \
                 -f "$PACKAGE" --patches="toolchain/$f.mpp" 2>/dev/null \
                 | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
@@ -272,7 +272,7 @@ jobs:
       - name: Confirm the toolchain arrived
         run: |
           set -euo pipefail
-          for f in patches-morpheapp.mpp patches-rushiranpise.mpp patches-hoodles.mpp morphe-desktop.jar; do
+          for f in patches-morpheapp.mpp patches-doom.mpp patches-hoodles.mpp morphe-desktop.jar; do
             [[ -s "toolchain/$f" ]] || { echo "::error::$f missing from the toolchain cache"; exit 1; }
           done
 
@@ -331,7 +331,7 @@ jobs:
           java -jar toolchain/morphe-desktop.jar options-create \
             -f "$PACKAGE" -o options.json \
             -p toolchain/patches-morpheapp.mpp \
-            -p toolchain/patches-rushiranpise.mpp \
+            -p toolchain/patches-doom.mpp \
             -p toolchain/patches-hoodles.mpp
 
           # With more than one bundle loaded the -e flags are ignored and the options
@@ -366,7 +366,7 @@ jobs:
           # this leg's log where they can be checked against the reported matrix.
           java -jar toolchain/morphe-desktop.jar patch \
             --patches=toolchain/patches-morpheapp.mpp \
-            --patches=toolchain/patches-rushiranpise.mpp \
+            --patches=toolchain/patches-doom.mpp \
             --patches=toolchain/patches-hoodles.mpp \
             --options-file=options.json \
             --out="out-${{ matrix.version }}.apk" \
