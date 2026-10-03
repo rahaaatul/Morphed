@@ -466,9 +466,13 @@ jobs:
             exit 1
           fi
           echo "shipping ${#versions[@]} version(s): ${versions[*]}"
+          # The trailing .* matters. upload-artifact stores each artifact as
+          # "<name>.zip", so a literal "apk-<version>" pattern matches nothing and the
+          # download silently returns zero files. Anchoring on the dot also keeps
+          # 5.20.5 from matching 5.20.57.0.
           {
             echo 'pattern<<EOF'
-            for v in "${versions[@]}"; do echo "apk-$v"; done
+            for v in "${versions[@]}"; do echo "apk-$v.*"; done
             echo EOF
           } >> "$GITHUB_OUTPUT"
 
