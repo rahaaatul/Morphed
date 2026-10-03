@@ -1,0 +1,153 @@
+#!/usr/bin/env python3
+"""Walk ProtonVPN releases newest first and record what each version can patch.
+
+Stops at the first version where every expected patch actually applied, which is
+the newest version safe to ship with the full patch set.
+
+Runs from a work directory holding the patch bundles, the patcher jar, the
+generated options.json and the keystore. Reads PACKAGE, UPSTREAM, EXPECTED_PATCHES
+and MAX_VERSIONS from the environment.
+"""
+import json
+import os
+import subprocess
+import sys
+
+PKG = os.environ["PACKAGE"]
+UPSTREAM = os.environ["UPSTREAM"]
+MPPS = ["patches-morpheapp.mpp", "patches-rushiranpise.mpp"]
+JAR = "morphe-desktop.jar"
+OPTIONS = "options.json"
+KEYSTORE = "morphe.keystore"
+EXPECTED = [p.strip() for p in os.environ["EXPECTED_PATCHES"].split("\n") if p.strip()]
+MAXV = int(os.environ.get("MAX_VERSIONS", "5"))
+
+
+def sh(cmd):
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def api(path):
+    r = sh(["gh", "api", path])
+    if r.returncode != 0:
+        return None
+    try:
+        return json.loads(r.stdout)
+    except json.JSONDecodeError:
+        return None
+
+
+def release_tags():
+    out = []
+    for rel in api(f"repos/{UPSTREAM}/releases?per_page=40") or []:
+        if not rel.get("draft"):
+            out.append(rel["tag_name"])
+    return out[:MAXV]
+
+
+def asset(tag):
+    """The direct-release APK for a tag, with the size the API reports."""
+    rel = api(f"repos/{UPSTREAM}/releases/tags/{tag}")
+    for a in (rel or {}).get("assets", []):
+        if "vanilla-direct" in a["name"] and a["name"].endswith(".apk"):
+            return a["browser_download_url"], a["size"]
+    return None, None
+
+
+def fetch(tag, url, want):
+    """Download once and verify against the reported size.
+
+    A truncated download is the reason this check exists: the patcher accepts a
+    partial APK and reports zero applied and zero failed, which is indistinguishable
+    from "this version is not supported" and would silently drop the version.
+    """
+    path = f"apks/protonvpn-{tag}.apk"
+    os.makedirs("apks", exist_ok=True)
+    if os.path.exists(path) and os.path.getsize(path) == want:
+        return path, True
+    print(f"    downloading {tag} ({want} bytes)", flush=True)
+    sh(["curl", "-fsSL", "-o", path, url])
+    got = os.path.getsize(path) if os.path.exists(path) else 0
+    if got != want:
+        print(f"    size mismatch: got {got}, expected {want}", flush=True)
+        if os.path.exists(path):
+            os.remove(path)
+        return None, False
+    return path, False
+
+
+def patch(tag):
+    out, res = f"out-{tag}.apk", f"result-{tag}.json"
+    if os.path.exists(out) and os.path.exists(res):
+        src = f"apks/protonvpn-{tag}.apk"
+    else:
+        url, size = asset(tag)
+        if not url:
+            return None
+        src = fetch(tag, url, size)
+        if not src:
+            return None
+    if not (os.path.exists(out) and os.path.exists(res)):
+        cmd = ["java", "-jar", JAR, "patch"]
+        for m in MPPS:
+            # --force is what makes an undeclared version usable: it skips the APK
+            # version compatibility check, so every patch is attempted and one that
+            # cannot match its fingerprint reports as a failure instead of vanishing.
+            cmd.append(f"--patches={m}")
+        cmd += [f"--options-file={OPTIONS}", "--striplibs=arm64-v8a",
+                f"--out={out}", f"-r={res}", f"--keystore={KEYSTORE}",
+                "--force", "--continue-on-error", src]
+        print("    patching, this takes a minute", flush=True)
+        sh(cmd)
+    if not os.path.exists(res):
+        return None
+    data = json.load(open(res))
+    return {
+        "version": tag,
+        "applied": [p["name"] for p in data.get("appliedPatches") or []],
+        # The name sits under a nested patch field; the top level is null.
+        "failed": [p["patch"]["name"] for p in data.get("failedPatches") or []
+                   if p.get("patch")],
+        "built": os.path.exists(out),
+    }
+
+
+def main():
+    tags = release_tags()
+    print(f"walking {len(tags)} release(s), newest first: {', '.join(tags)}\n", flush=True)
+    records, anchor = [], None
+    for tag in tags:
+        print(f"  trying {tag}...", flush=True)
+        rec = patch(tag)
+        if rec is None:
+            print(f"  {tag}: skipped, no usable APK\n", flush=True)
+            continue
+        records.append(rec)
+        print(f"  {tag}: {len(rec['applied'])} applied, {len(rec['failed'])} failed, "
+              f"built={rec['built']}", flush=True)
+        for n in rec["applied"]:
+            print(f"      ok    {n}", flush=True)
+        for n in rec["failed"]:
+            print(f"      FAIL  {n}", flush=True)
+        # An empty failed list is not success. A version the patch set does not target
+        # yields zero applied AND zero failed, because the patches are filtered as
+        # inapplicable rather than attempted. Require every expected patch instead.
+        missing = [p for p in EXPECTED if p not in rec["applied"]]
+        if not missing:
+            anchor = tag
+            print("  -> every expected patch applied, stopping here\n", flush=True)
+            break
+        print(f"  -> incomplete, missing: {', '.join(missing)}\n", flush=True)
+
+    if not records:
+        sys.exit("no version could be patched")
+
+    payload = {"anchor": anchor, "package": PKG, "versions": records}
+    with open("probe-result.json", "w") as fh:
+        json.dump(payload, fh, indent=2)
+    print(f"anchor: {anchor}")
+    print(f"versions recorded: {', '.join(r['version'] for r in records)}")
+
+
+if __name__ == "__main__":
+    main()

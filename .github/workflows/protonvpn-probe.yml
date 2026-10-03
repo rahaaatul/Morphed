@@ -1,0 +1,133 @@
+name: Proton VPN probe
+
+# Probe only: works out which Proton VPN versions the current patch set can
+# actually patch, then renders the Patch | Supported Version matrix into an
+# issue so it can be reviewed as rendered markdown before it goes anywhere near
+# a release body. Not wired to a release.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 6 * * 1'
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  REPO_FULL: rahaaatul/Morphed
+  PACKAGE: ch.protonvpn.android
+  UPSTREAM: ProtonVPN/android-app
+  # Kept in step with src/patches/Proton-VPN-*/ in this repo.
+  EXPECTED_PATCHES: |
+    Change installer source
+    Disable Play Store updates
+    Unlock VPN Plus
+  MAX_VERSIONS: '5'
+  ISSUE_TITLE: 'Proton VPN patch matrix (probe)'
+
+jobs:
+  probe:
+    name: Probe patch matrix
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Python
+        uses: actions/setup-python@v6.1.0
+        with:
+          python-version: '3.13'
+
+      - name: Fetch patcher and both patch bundles
+        run: |
+          set -euo pipefail
+          # Newest release carrying the wanted asset, prereleases preferred.
+          newest_asset() {
+            local repo=$1 ext=$2
+            curl -fsSL "https://api.github.com/repos/${repo}/releases?per_page=30" \
+              | jq -r --arg ext "$ext" '
+                  ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
+                  | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
+                  | .[].assets[]? | select(.name | endswith($ext)) | .browser_download_url' \
+              | head -1
+          }
+
+          curl -fsSL -o patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
+          curl -fsSL -o patches-rushiranpise.mpp "$(newest_asset rushiranpise/morphe-patches .mpp)"
+          curl -fsSL -o morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
+
+          for f in patches-morpheapp.mpp patches-rushiranpise.mpp morphe-desktop.jar; do
+            [[ -s "$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
+          done
+          ls -la *.mpp morphe-desktop.jar
+
+      - name: Build the combined options file
+        run: |
+          set -euo pipefail
+          # Two bundles are required. The generic install-source and update patches live
+          # in MorpheApp's bundle and the premium unlock in rushiranpise's; neither repo
+          # carries all three, so one bundle alone cannot satisfy the request.
+          java -jar morphe-desktop.jar options-create \
+            -f "$PACKAGE" -o options.json \
+            -p patches-morpheapp.mpp -p patches-rushiranpise.mpp
+
+          # With more than one bundle loaded the -e flags are ignored and the options
+          # file wins, so the selection has to be made here. Enabled by name across
+          # every bundle so it does not matter which bundle each patch landed in.
+          want=$(printf '%s\n' "$EXPECTED_PATCHES" | jq -R . | jq -sc .)
+          jq --argjson want "$want" '
+            [.[] | .patches |= with_entries(
+               if (.key as $k | $want | index($k)) then .value.enabled = true else . end)]
+          ' options.json > options.tmp && mv options.tmp options.json
+
+          echo "enabled per bundle:"
+          jq -r 'to_entries[]
+                 | "  bundle \(.key): \(.value.patches | to_entries
+                     | map(select(.value.enabled) | .key) | join(", "))"' options.json
+
+      - name: Walk releases newest first until every patch applies
+        run: |
+          set -euo pipefail
+          mkdir -p work && cd work
+          cp ../patches-*.mpp ../morphe-desktop.jar ../options.json ../src/keystore/morphe.keystore .
+          python3 -u "$GITHUB_WORKSPACE/scripts/protonvpn-probe/walk.py"
+
+      - name: Render the matrix
+        run: |
+          set -euo pipefail
+          cd work
+          python3 "$GITHUB_WORKSPACE/scripts/protonvpn-probe/table.py"
+
+      - name: Publish the matrix to an issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          body=$(cat work/probe-body.md)
+          number=$(gh issue list --search "$ISSUE_TITLE in:title" --state all \
+                   --json number,title --jq '.[0].number // empty')
+          if [[ -n "$number" ]]; then
+            gh issue edit "$number" --body "$body" > /dev/null
+            echo "Updated issue #$number"
+          else
+            gh issue create --title "$ISSUE_TITLE" --body "$body" > /dev/null
+            echo "Created issue"
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: protonvpn-probe
+          path: |
+            work/probe-result.json
+            work/probe-body.md
+            work/out-*.apk
+          retention-days: 7
+          if-no-files-found: warn
