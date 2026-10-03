@@ -178,6 +178,12 @@ jobs:
               first_matrix=0
             fi
           done <<< "$versions"
+          # An empty matrix produces zero jobs, which GitHub reports as a failed run
+          # even though every real job passed. Emit a single sentinel entry instead and
+          # let the patch job skip its work, so a no-op run stays green.
+          if [[ $first_matrix -eq 1 ]]; then
+            matrix+='{"noop":true}'
+          fi
           matrix+=']}'
           channels+='}'
           reused+=']'
@@ -213,7 +219,7 @@ jobs:
           if-no-files-found: error
 
   patch:
-    name: Patch ${{ matrix.version }} (${{ matrix.channel }})
+    name: ${{ matrix.noop && 'Nothing to patch' || format('Patch {0} ({1})', matrix.version, matrix.channel) }}
     needs: discover
     runs-on: ubuntu-24.04
     continue-on-error: false
@@ -222,15 +228,18 @@ jobs:
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     steps:
       - name: Checkout
+        if: ${{ !matrix.noop }}
         uses: actions/checkout@v6.0.2
 
       - name: Set up JDK
+        if: ${{ !matrix.noop }}
         uses: actions/setup-java@v5.2.0
         with:
           distribution: 'zulu'
           java-version: '21'
 
       - name: Restore APK cache
+        if: ${{ !matrix.noop }}
         uses: actions/cache/restore@v4
         with:
           path: apk-cache
@@ -239,6 +248,7 @@ jobs:
             apk-cache-${{ env.APP_SLUG }}-
 
       - name: Drop cache for unsupported versions
+        if: ${{ !matrix.noop }}
         run: |
           set -euo pipefail
           # Morphe stops supporting old targets, so their cached originals are dead
@@ -271,15 +281,18 @@ jobs:
           done < /tmp/cached.txt
 
       - name: Save APK cache
+        if: ${{ !matrix.noop }}
         uses: actions/cache/save@v4
         with:
           path: apk-cache
           key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
 
       - name: Set up Bun
+        if: ${{ !matrix.noop }}
         uses: oven-sh/setup-bun@v2
 
       - name: Install apkmirror-downloader
+        if: ${{ !matrix.noop }}
         run: |
           set -euo pipefail
           bun add apkmirror-downloader
@@ -287,11 +300,13 @@ jobs:
           grep -o 'apkmirror-downloader@[0-9.]*' bun.lock | head -1
 
       - name: Download patcher artifacts
+        if: ${{ !matrix.noop }}
         uses: actions/download-artifact@v8.0.1
         with:
           name: morphe-toolchain
 
       - name: Download APK from APKMirror
+        if: ${{ !matrix.noop }}
         id: download
         env:
           CACHE_DIR: apk-cache
@@ -377,6 +392,7 @@ jobs:
           ls -la "$dest"
 
       - name: Patch APK
+        if: ${{ !matrix.noop }}
         id: patch
         run: |
           set -euo pipefail
@@ -425,6 +441,7 @@ jobs:
           ls -la "$out"
 
       - name: Upload patched APK
+        if: ${{ !matrix.noop }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: apk-${{ matrix.version }}
@@ -433,6 +450,7 @@ jobs:
           if-no-files-found: error
 
       - name: Upload applied patch list
+        if: ${{ !matrix.noop }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: applied-${{ matrix.version }}
