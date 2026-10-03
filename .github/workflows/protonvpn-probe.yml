@@ -188,16 +188,24 @@ jobs:
           # them. A version in neither list is a canary as far as the patches are
           # concerned: nothing upstream claims it, it is simply carried by --force.
           declared() {
-            local flag="$1" f
+            local -a flag=()
+            # An absent flag must not be passed as an empty argument: list-versions
+            # rejects "" as unmatched and exits non-zero, which pipefail then turns
+            # into a step failure.
+            if [[ -n "${1:-}" ]]; then flag=("$1"); fi
+            local f
             for f in patches-morpheapp patches-rushiranpise patches-hoodles; do
-              java -jar toolchain/morphe-desktop.jar list-versions "$flag" -f "$PACKAGE" \
-                --patches="toolchain/$f.mpp" 2>/dev/null \
+              java -jar toolchain/morphe-desktop.jar list-versions "${flag[@]}" \
+                -f "$PACKAGE" --patches="toolchain/$f.mpp" 2>/dev/null \
                 | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
             done | sort -u
           }
-          stable=$(declared '' | jq -R . | jq -sc .)
-          experimental=$(declared '-x' | grep -vxF -f <(declared '' ) || true)
-          experimental=$(printf '%s\n' "$experimental" | sed '/^$/d' | jq -R . | jq -sc .)
+          stable_raw=$(declared '')
+          stable=$(printf '%s\n' "$stable_raw" | sed '/^$/d' | jq -R . | jq -sc .)
+          experimental_raw=$(declared '-x' \
+            | grep -vxF -f <(printf '%s\n' "$stable_raw") || true)
+          experimental=$(printf '%s\n' "$experimental_raw" | sed '/^$/d' \
+            | jq -R . | jq -sc .)
           echo "declared stable:       $stable"
           echo "declared experimental: $experimental"
           {
