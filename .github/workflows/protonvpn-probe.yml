@@ -45,7 +45,7 @@ jobs:
       bundles: ${{ steps.plan.outputs.bundles }}
       toolchain_key: ${{ steps.plan.outputs.toolchain_key }}
       patches: ${{ steps.plan.outputs.patches }}
-      rush_recommended: ${{ steps.plan.outputs.rush_recommended }}
+      doom_recommended: ${{ steps.plan.outputs.doom_recommended }}
       hoodles_recommended: ${{ steps.plan.outputs.hoodles_recommended }}
       stable_versions: ${{ steps.plan.outputs.stable_versions }}
       experimental_versions: ${{ steps.plan.outputs.experimental_versions }}
@@ -126,12 +126,12 @@ jobs:
               --patches="toolchain/$1" 2>/dev/null \
               | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p' | head -1
           }
-          rush_rec=$(recommended patches-rushiranpise.mpp)
+          doom_rec=$(recommended patches-rushiranpise.mpp)
           hoo_rec=$(recommended patches-hoodles.mpp)
-          echo "rushiranpise recommends: ${rush_rec:-unknown}"
+          echo "Doom recommends: ${doom_rec:-unknown}"
           echo "hoo-dles recommends: ${hoo_rec:-unknown}"
           {
-            echo "rush_recommended=$rush_rec"
+            echo "doom_recommended=$doom_rec"
             echo "hoodles_recommended=$hoo_rec"
           } >> "$GITHUB_OUTPUT"
 
@@ -160,7 +160,7 @@ jobs:
           tags=$(gh api "repos/$UPSTREAM/releases?per_page=40" \
                  | jq -r '.[] | select(.draft == false) | .tag_name')
           deepest=""
-          for want in "$rush_rec" "$hoo_rec"; do
+          for want in "$doom_rec" "$hoo_rec"; do
             [[ -n "$want" ]] || continue
             idx=$(printf '%s\n' "$tags" | grep -n "^${want}$" | head -1 | cut -d: -f1)
             [[ -n "$idx" ]] || { echo "::warning::$want is not a published release tag"; continue; }
@@ -177,7 +177,7 @@ jobs:
           if [[ "$want_n" -gt "$MAX_VERSIONS" ]]; then
             want_n=$MAX_VERSIONS
           fi
-          echo "covering the newest $want_n release(s) to reach $rush_rec and $hoo_rec"
+          echo "covering the newest $want_n release(s) to reach $doom_rec and $hoo_rec"
 
           matrix=$(printf '%s\n' "$tags" | head -"$want_n" \
                    | jq -R . | jq -sc '{include: map({version: .})}')
@@ -415,7 +415,7 @@ jobs:
     runs-on: ubuntu-24.04
     env:
       GH_TOKEN: ${{ github.token }}
-      RUSH_RECOMMENDED: ${{ needs.discover.outputs.rush_recommended }}
+      DOOM_RECOMMENDED: ${{ needs.discover.outputs.doom_recommended }}
       HOODLES_RECOMMENDED: ${{ needs.discover.outputs.hoodles_recommended }}
       STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
       EXPERIMENTAL_VERSIONS: ${{ needs.discover.outputs.experimental_versions }}

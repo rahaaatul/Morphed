@@ -27,7 +27,7 @@ def patch_list(raw):
 
 EXPECTED = patch_list(os.environ.get("EXPECTED_PATCHES", ""))
 GENERIC = patch_list(os.environ.get("GENERIC_PATCHES", ""))
-RUSH_RECOMMENDED = os.environ.get("RUSH_RECOMMENDED", "").strip()
+DOOM_RECOMMENDED = os.environ.get("DOOM_RECOMMENDED", "").strip()
 HOODLES_RECOMMENDED = os.environ.get("HOODLES_RECOMMENDED", "").strip()
 STABLE = set(json.loads(os.environ.get("STABLE_VERSIONS", "[]")))
 EXPERIMENTAL = set(json.loads(os.environ.get("EXPERIMENTAL_VERSIONS", "[]")))
@@ -131,11 +131,11 @@ body = ["## Patches", "",
 for name in EXPECTED:
     body.append(f"| {name} | {applied_on(name)} |")
 
-if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
+if DOOM_RECOMMENDED or HOODLES_RECOMMENDED:
     notes = []
-    if RUSH_RECOMMENDED:
+    if DOOM_RECOMMENDED:
         notes.append(f"> - **[Doom's Morphe Patches](https://github.com/rushiranpise/morphe-patches/)** "
-                     f"recommends `{RUSH_RECOMMENDED}`.")
+                     f"recommends `{DOOM_RECOMMENDED}`.")
     if HOODLES_RECOMMENDED:
         notes.append(f"> - **[hoodles Morphe Patches](https://github.com/hoo-dles/morphe-patches)** "
                      f"recommends `{HOODLES_RECOMMENDED}`.")
@@ -173,7 +173,7 @@ if anchor:
              "cleanly.", ""]
 else:
     lead += ["> [!WARNING]", "> No tested version had every patch applied.", ""]
-if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
+if DOOM_RECOMMENDED or HOODLES_RECOMMENDED:
     lead += ["> [!NOTE]"] + notes + [""]
 
 with open("probe-body.md", "w") as fh:
