@@ -39,9 +39,6 @@ env:
     Change installer source
     Disable Play Store updates
   MAX_VERSIONS: '10'
-  # The single ABI the APKs are stripped down to. Named once so the patcher and the
-  # recorded metadata cannot disagree about what was shipped.
-  ARCH: 'arm64-v8a'
 
 jobs:
   discover:
@@ -311,6 +308,10 @@ jobs:
       - name: Patch
         run: |
           set -euo pipefail
+          # No --striplibs here: Proton publishes a single universal APK carrying
+          # arm64-v8a, armeabi-v7a, x86, x86_64 and more, so there is no per-architecture
+          # variant to pick and stripping would needlessly break other devices.
+          #
           # --force skips the APK version compatibility check, so every patch is
           # attempted on a release the bundle does not declare. Without it a patch that
           # would work is filtered out silently instead of being applied.
@@ -325,7 +326,6 @@ jobs:
             --patches=toolchain/patches-rushiranpise.mpp \
             --patches=toolchain/patches-hoodles.mpp \
             --options-file=options.json \
-            --striplibs="$ARCH" \
             --out="out-${{ matrix.version }}.apk" \
             -r="result-${{ matrix.version }}.json" \
             --keystore=src/keystore/morphe.keystore \
@@ -334,8 +334,17 @@ jobs:
 
           # Sidecar for the report job: what was produced, as opposed to what the
           # patcher reported. The patcher's own JSON has no size or arch in it.
+          # Read the ABI list back out of the APK rather than asserting what it should
+          # be, so the recorded architecture cannot drift from the shipped file.
+          abis=$(unzip -l "out-${{ matrix.version }}.apk" \
+                 | grep -oE 'lib/[^/]+/' | sort -u | sed 's:^lib/::; s:/$::' || true)
+          n=$(printf '%s\n' "$abis" | grep -c . || true)
+          if [[ "$n" -gt 1 ]]; then arch="Universal"; else arch="${abis:-unknown}"; fi
+          echo "  abis ($n): $(printf '%s' "$abis" | tr '\n' ' ')"
+          echo "  arch label: $arch"
+
           jq -nc --arg v "${{ matrix.version }}" \
-                 --arg a "$ARCH" \
+                 --arg a "$arch" \
                  --argjson s "$(stat -c%s "out-${{ matrix.version }}.apk")" \
                  '{version: $v, arch: $a, size_bytes: $s}' > "meta-${{ matrix.version }}.json"
           cat "meta-${{ matrix.version }}.json"
