@@ -206,6 +206,7 @@
               "Theme",
               "Third-party lyrics"
             ],
+            "patches_failed": [],
             "versions": [
               "9.39.52",
               "9.38.51",
