@@ -19,6 +19,7 @@ permissions:
   contents: read
 
 env:
+  REPO_FULL: rahaaatul/Morphed
   PACKAGE: ch.protonvpn.android
   UPSTREAM: ProtonVPN/android-app
   RUSH_OWNER_REPO: rushiranpise/morphe-patches

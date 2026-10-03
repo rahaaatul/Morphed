@@ -49,11 +49,16 @@ for path in sorted(glob.glob(os.path.join(RESULTS_DIR, "result-*.json"))):
         "failed": [p["patch"]["name"] for p in data.get("failedPatches") or []
                    if p.get("patch")],
         "size": 0,
+        "arch": "",
     }
     meta = os.path.join(RESULTS_DIR, f"meta-{version}.json")
     if os.path.exists(meta):
         with open(meta) as fh:
-            rec["size"] = json.load(fh).get("size_bytes", 0)
+            m = json.load(fh)
+        rec["size"] = m.get("size_bytes", 0)
+        # Prefer what the patch leg read back out of the APK over any configured
+        # default, so the body cannot label an artifact with the wrong architecture.
+        rec["arch"] = m.get("arch", "")
     records.append(rec)
 
 if not records:
@@ -112,6 +117,13 @@ if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
         notes.append(f"> - **[hoodles Morphe Patches](https://github.com/hoo-dles/morphe-patches)** "
                      f"recommends `{HOODLES_RECOMMENDED}`.")
 
+if bool(RELEASE_TAG) != bool(REPO_FULL):
+    # Half-configured download links would render a table of dead links, or drop the
+    # section entirely and look like there is nothing to download. Say which half is
+    # missing instead.
+    sys.exit("RELEASE_TAG and REPO_FULL must be set together "
+             f"(RELEASE_TAG={RELEASE_TAG!r}, REPO_FULL={REPO_FULL!r})")
+
 if RELEASE_TAG and REPO_FULL:
     body += ["", "## Downloads", "",
              "| Version | Channel | Arch | Size | Download |",
@@ -121,7 +133,8 @@ if RELEASE_TAG and REPO_FULL:
         url = f"https://github.com/{REPO_FULL}/releases/download/{RELEASE_TAG}/{name}"
         channel = "Stable" if r["version"] in STABLE else "Canary"
         size = fmt_size(r["size"]) if r["size"] else "&mdash;"
-        body.append(f"|`{r['version']}`|{channel}|{ARCH}|{size}|[{name}]({url})|")
+        arch = r["arch"] or ARCH
+        body.append(f"|`{r['version']}`|{channel}|{arch}|{size}|[{name}]({url})|")
 
 if TOOLS:
     body += ["", "## Tools used", "", "|Tool|Version|", "| :--- | ---: |"]
