@@ -40,6 +40,7 @@ jobs:
       matrix: ${{ steps.versions.outputs.matrix }}
       channels: ${{ steps.versions.outputs.channels }}
       reused: ${{ steps.versions.outputs.reused }}
+      nothing_to_build: ${{ steps.versions.outputs.nothing_to_build }}
       versions: ${{ steps.versions.outputs.versions }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
       desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
