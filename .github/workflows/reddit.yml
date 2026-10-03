@@ -704,6 +704,7 @@ jobs:
                --arg pkg "$PACKAGE" --arg desktop "$DESKTOP_VER" \
                --argjson versions "$versions_json" \
                --argjson applied "$applied_json" \
+               --argjson failed "$failed_json" \
                '.source[$o][$r][$t][$app] = {
                   org: $org,
                   repo: $repo,
