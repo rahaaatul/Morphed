@@ -13,8 +13,20 @@ import re
 import sys
 
 RESULTS_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
-EXPECTED = [p.strip() for p in os.environ.get("EXPECTED_PATCHES", "").split("\n") if p.strip()]
-GENERIC = [p.strip() for p in os.environ.get("GENERIC_PATCHES", "").split("\n") if p.strip()]
+def patch_list(raw):
+    """Accept either a JSON array or newline separated text.
+
+    The workflow passes a JSON array because the list is discovered at run time,
+    while a hand-maintained override is easier to write as one name per line.
+    """
+    raw = raw.strip()
+    if raw.startswith("["):
+        return [p.strip() for p in json.loads(raw) if p.strip()]
+    return [p.strip() for p in raw.split("\n") if p.strip()]
+
+
+EXPECTED = patch_list(os.environ.get("EXPECTED_PATCHES", ""))
+GENERIC = patch_list(os.environ.get("GENERIC_PATCHES", ""))
 RUSH_RECOMMENDED = os.environ.get("RUSH_RECOMMENDED", "").strip()
 HOODLES_RECOMMENDED = os.environ.get("HOODLES_RECOMMENDED", "").strip()
 STABLE = set(json.loads(os.environ.get("STABLE_VERSIONS", "[]")))
@@ -122,7 +134,7 @@ for name in EXPECTED:
 if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
     notes = []
     if RUSH_RECOMMENDED:
-        notes.append(f"> - **[Doom's Morphe Patches](https://github.com/rushiranpise/morphe-patches/)*** "
+        notes.append(f"> - **[Doom's Morphe Patches](https://github.com/rushiranpise/morphe-patches/)** "
                      f"recommends `{RUSH_RECOMMENDED}`.")
     if HOODLES_RECOMMENDED:
         notes.append(f"> - **[hoodles Morphe Patches](https://github.com/hoo-dles/morphe-patches)** "
