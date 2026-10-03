@@ -44,16 +44,6 @@
             "repo": "youtube",
             "package": "com.google.android.youtube",
             "desktop": "1.18.0-dev.6",
-            "versions": [
-              "20.21.37",
-              "20.31.42",
-              "21.13.164",
-              "21.16.256",
-              "21.23.492",
-              "21.28.208",
-              "21.38.130",
-              "21.39.522"
-            ],
             "patches_applied": [
               "Add to queue",
               "Alternative thumbnails",
@@ -148,6 +138,16 @@
               "Video quality",
               "Voice over translation",
               "Wide search bar"
+            ],
+            "versions": [
+              "21.39.522",
+              "21.38.130",
+              "21.28.208",
+              "21.23.492",
+              "21.16.256",
+              "21.13.164",
+              "20.31.42",
+              "20.21.37"
             ]
           },
           "youtube-music": {
