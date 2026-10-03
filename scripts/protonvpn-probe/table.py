@@ -1,12 +1,10 @@
 #!/usr/bin/env python3
-"""Combine the per-version probe results and render the patch matrix.
+"""Combine the per-version probe results and render the release body.
 
 Each matrix leg uploads one result JSON, so this merges them, works out which
-versions the patch set actually supports, and writes the release-style body.
+versions the patch set actually supports, and writes the release body.
 
 Usage: table.py [results-dir]   (defaults to the current directory)
-
-Reads result-<version>.json files and writes probe-body.md.
 """
 import glob
 import json
@@ -19,30 +17,50 @@ EXPECTED = [p.strip() for p in os.environ.get("EXPECTED_PATCHES", "").split("\n"
 GENERIC = [p.strip() for p in os.environ.get("GENERIC_PATCHES", "").split("\n") if p.strip()]
 RUSH_RECOMMENDED = os.environ.get("RUSH_RECOMMENDED", "").strip()
 HOODLES_RECOMMENDED = os.environ.get("HOODLES_RECOMMENDED", "").strip()
+STABLE = set(json.loads(os.environ.get("STABLE_VERSIONS", "[]")))
+RELEASE_TAG = os.environ.get("RELEASE_TAG", "")
+REPO_FULL = os.environ.get("REPO_FULL", "")
+ARCH = os.environ.get("ARCH", "arm64-v8a")
+TOOLS = json.loads(os.environ.get("TOOLS", "[]"))
+
+# Above this many exceptions a version list is clearer than "All except ...".
+MAX_EXCEPTIONS = 3
 
 
 def version_key(v):
-    """Sort numerically per component, so 5.20.9.0 lands above 5.20.57.0's neighbour."""
+    """Sort numerically per component, so 5.20.9.0 sorts below 5.20.57.0."""
     return [int(n) if n.isdigit() else 0 for n in re.split(r"[._-]", v)]
 
 
+def fmt_size(n):
+    mb = n / 1048576
+    return f"{mb:.1f}MB" if mb < 100 else f"{mb/1024:.2f}GB"
+
+
 records = []
-for path in glob.glob(os.path.join(RESULTS_DIR, "result-*.json")):
+for path in sorted(glob.glob(os.path.join(RESULTS_DIR, "result-*.json"))):
     version = os.path.basename(path)[len("result-"):-len(".json")]
     with open(path) as fh:
         data = json.load(fh)
-    records.append({
+    rec = {
         "version": version,
         "applied": [p["name"] for p in data.get("appliedPatches") or []],
         # The name sits under a nested patch field; the top level is null.
         "failed": [p["patch"]["name"] for p in data.get("failedPatches") or []
                    if p.get("patch")],
-    })
+        "size": 0,
+    }
+    meta = os.path.join(RESULTS_DIR, f"meta-{version}.json")
+    if os.path.exists(meta):
+        with open(meta) as fh:
+            rec["size"] = json.load(fh).get("size_bytes", 0)
+    records.append(rec)
 
 if not records:
     sys.exit(f"no result-*.json found in {RESULTS_DIR}")
 
 records.sort(key=lambda r: version_key(r["version"]), reverse=True)
+tested = [r["version"] for r in records]
 
 # The recommendation is the newest version where every expected patch applied.
 anchor = next((r["version"] for r in records
@@ -60,94 +78,68 @@ def is_bust(rec):
 
 
 kept = [r for r in records if not is_bust(r)]
-busted = [r for r in records if is_bust(r)]
 if not kept:
     # Without this the table would be empty and every patch would read as supporting
     # nothing, which reads as a broken probe rather than a bad result.
     kept = records
+kept_versions = [r["version"] for r in kept]
 
-# First-seen order, applied before failed within a version, so patches that work lead
-# and ones that never applied still get a row.
-order, supported = [], {}
-for rec in kept:
-    for name in rec["applied"] + rec["failed"]:
-        if name not in supported:
-            supported[name] = []
-            order.append(name)
-    for name in rec["applied"]:
-        supported[name].append(rec["version"])
 
-rows = ["| Patch | Supported Version |", "| ----- | ----------------- |"]
-for name in order:
-    vers = supported[name]
-    # A markdown cell cannot hold a literal newline, so <br> separates versions.
-    cell = "<br>".join(f"`{v}`" for v in vers) if vers else "&mdash;"
-    rows.append(f"| {name} | {cell} |")
-if len(rows) == 2:
-    # No patch was recorded as applied or failed on any version, which means the
-    # probe itself did not get as far as patching. A header-only table would read as
-    # "these patches support nothing" rather than "nothing was measured".
-    rows.append("| _nothing was measured_ | &mdash; |")
-table = "\n".join(rows)
+def applied_on(name):
+    """Compact support statement: `All`, `All` except `x`, or the version list."""
+    vers = [r["version"] for r in kept if name in r["applied"]]
+    if not vers:
+        return "&mdash;"
+    if len(vers) == len(kept_versions):
+        return "`All`"
+    missing = [v for v in kept_versions if v not in vers]
+    if len(missing) <= MAX_EXCEPTIONS:
+        return "`All` except " + ", ".join(f"`{v}`" for v in missing)
+    return "<br>".join(f"`{v}`" for v in vers)
 
-body = []
 
-# The recommendation leads, so it is the first thing read and stays visible.
-if anchor:
-    body += ["> [!TIP]", f"> Install `{anchor}`. It is the newest version where every "
-                        "patch applied cleanly.", ""]
-else:
-    body += ["> [!WARNING]", "> No tested version had every patch applied.", ""]
+body = ["## Patches", "",
+        "|Patch|Applied on|", "| :--- | ---: |"]
+for name in EXPECTED:
+    body.append(f"|{name}|{applied_on(name)}|")
 
 if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
-    body += ["> [!NOTE]"]
+    notes = []
     if RUSH_RECOMMENDED:
-        body.append(f"> rushiranpise recommends `{RUSH_RECOMMENDED}`.")
+        notes.append(f"> - **[Doom's Morphe Patches](https://github.com/rushiranpise/morphe-patches/)*** "
+                     f"recommends `{RUSH_RECOMMENDED}`.")
     if HOODLES_RECOMMENDED:
-        body.append(f"> hoo-dles recommends `{HOODLES_RECOMMENDED}`.")
-    body.append("")
+        notes.append(f"> - **[hoodles Morphe Patches](https://github.com/hoo-dles/morphe-patches)** "
+                     f"recommends `{HOODLES_RECOMMENDED}`.")
 
-body += [
-    f"Package `{os.environ.get('PACKAGE', '?')}`, {len(kept)} version(s) tested.",
-    "",
-    "<details>",
-    "<summary><b>Patch | Supported Version</b></summary>",
-    "",
-    table,
-    "",
-    "</details>",
-    "",
-]
+if RELEASE_TAG and REPO_FULL:
+    body += ["", "## Downloads", "",
+             "| Version | Channel | Arch | Size | Download |",
+             "| :------- | :-------: | :---------: | :-----: | ------------------------: |"]
+    for r in kept:
+        name = f"{RELEASE_TAG}-v{r['version']}.apk"
+        url = f"https://github.com/{REPO_FULL}/releases/download/{RELEASE_TAG}/{name}"
+        channel = "Stable" if r["version"] in STABLE else "Canary"
+        size = fmt_size(r["size"]) if r["size"] else "&mdash;"
+        body.append(f"|`{r['version']}`|{channel}|{ARCH}|{size}|[{name}]({url})|")
 
-if busted:
-    body += ["<details>", "<summary><b>Discarded</b></summary>", ""]
-    for r in busted:
-        body.append(f"- `{r['version']}` only got "
-                    + ", ".join(f"`{p}`" for p in r["applied"])
-                    + ", which is worth nothing on its own.")
-    body += ["", "</details>", ""]
+if TOOLS:
+    body += ["", "## Tools used", "", "|Tool|Version|", "| :--- | ---: |"]
+    for name, url, version in TOOLS:
+        tag_url = url.rstrip("/") + f"/releases/tag/{version}" if version else url
+        body.append(f"|[{name}]({url})|[`{version}`]({tag_url})|")
 
-# A version missing patches is called out by name, so nobody installs it expecting the
-# full set and silently gets less.
-partial = [(r["version"], [p for p in EXPECTED if p not in r["applied"]])
-           for r in kept]
-partial = [(v, m) for v, m in partial if m]
-if partial:
-    body += ["<details>", "<summary><b>Versions missing patches</b></summary>", ""]
-    for v, missing in partial:
-        listed = ", ".join(f"`{p}`" for p in missing)
-        # The subject is the version, so it stays "is missing" however many patches.
-        body += ["> [!WARNING]", f"> **`{v}`** is missing {listed}.", ""]
-    body += ["</details>", ""]
-
-body += ["<details><summary>Per version detail</summary>", "",
-         "| Version | Applied | Failed |", "| ------- | ------- | ------ |"]
-for r in records:
-    a = "<br>".join(f"`{n}`" for n in r["applied"]) or "&mdash;"
-    fl = "<br>".join(f"`{n}`" for n in r["failed"]) or "&mdash;"
-    body.append(f"| `{r['version']}` | {a} | {fl} |")
-body += ["", "</details>", ""]
+# The recommendation and the source recommendations lead the body.
+lead = []
+if anchor:
+    lead += ["> [!TIP]",
+             f"> Install `{anchor}`. It is the newest version where every patch applied "
+             "cleanly.", ""]
+else:
+    lead += ["> [!WARNING]", "> No tested version had every patch applied.", ""]
+if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
+    lead += ["> [!NOTE]"] + notes + [""]
 
 with open("probe-body.md", "w") as fh:
-    fh.write("\n".join(body))
-print("\n".join(body))
+    fh.write("\n".join(lead + body) + "\n")
+print("\n".join(lead + body))

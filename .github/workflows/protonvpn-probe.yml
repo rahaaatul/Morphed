@@ -26,13 +26,13 @@ env:
   # Kept in step with src/patches/Proton-VPN-*/ in this repo. The first two come from
   # MorpheApp's bundle, the next from rushiranpise's, the last four from hoo-dles's.
   EXPECTED_PATCHES: |
+    Unlock VPN Plus
+    Unlock LAN connections
+    Remove delay
+    Unlock custom DNS
+    Unlock split tunneling
     Change installer source
     Disable Play Store updates
-    Unlock VPN Plus
-    Unlock custom DNS
-    Remove delay
-    Unlock LAN connections
-    Unlock split tunneling
   # These two live in every bundle's shared set and apply to any app, so a version
   # carrying nothing else is not worth shipping.
   GENERIC_PATCHES: |
@@ -50,6 +50,8 @@ jobs:
       toolchain_key: ${{ steps.plan.outputs.toolchain_key }}
       rush_recommended: ${{ steps.plan.outputs.rush_recommended }}
       hoodles_recommended: ${{ steps.plan.outputs.hoodles_recommended }}
+      stable_versions: ${{ steps.plan.outputs.stable_versions }}
+      tools: ${{ steps.plan.outputs.tools }}
     env:
       GH_TOKEN: ${{ github.token }}
     steps:
@@ -164,6 +166,29 @@ jobs:
           matrix=$(printf '%s\n' "$tags" | head -"$want_n" \
                    | jq -R . | jq -sc '{include: map({version: .})}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+          # Versions the bundles actually declare as stable. Anything newer is a
+          # canary as far as the patch set is concerned, which is how the release body
+          # labels the channel column.
+          stable=$(for f in patches-morpheapp patches-rushiranpise patches-hoodles; do
+            java -jar toolchain/morphe-desktop.jar list-versions -f "$PACKAGE" \
+              --patches="toolchain/$f.mpp" 2>/dev/null \
+              | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
+          done | sort -u | jq -R . | jq -sc .)
+          echo "declared stable: $stable"
+          echo "stable_versions=$stable" >> "$GITHUB_OUTPUT"
+
+          # The body credits each tool with the exact version it used. Names go in via
+          # --arg because an apostrophe inside the jq program breaks the shell quoting.
+          tools=$(jq -nc \
+            --arg d "$jar" --arg m "$mpp" --arg r "$rush" --arg h "$hoo" \
+            --arg doom "Doom's Morphe Patches" \
+            '[["Morphe Desktop","https://github.com/MorpheApp/morphe-desktop",$d],
+              ["Morphe Patches","https://github.com/MorpheApp/morphe-patches",$m],
+              [$doom,"https://github.com/rushiranpise/morphe-patches/",$r],
+              ["hoodles Morphe Patches","https://github.com/hoo-dles/morphe-patches",$h]]')
+          echo "tools=$tools"
+          echo "tools=$tools" >> "$GITHUB_OUTPUT"
 
           # Results stay valid only while the bundles are unchanged, so the fingerprint
           # goes in the result cache key. The patcher is excluded on purpose: a new
@@ -304,6 +329,14 @@ jobs:
             --force --continue-on-error \
             original/app.apk
 
+          # Sidecar for the report job: what was produced, as opposed to what the
+          # patcher reported. The patcher's own JSON has no size or arch in it.
+          jq -nc --arg v "${{ matrix.version }}" \
+                 --arg a "$ARCH" \
+                 --argjson s "$(stat -c%s "out-${{ matrix.version }}.apk")" \
+                 '{version: $v, arch: $a, size_bytes: $s}' > "meta-${{ matrix.version }}.json"
+          cat "meta-${{ matrix.version }}.json"
+
           echo "reported result:"
           jq -r '"  applied: \([.appliedPatches[]?.name] | join(", "))",
                  "  failed:  \([.failedPatches[]?.patch.name] | join(", "))"' \
@@ -315,6 +348,7 @@ jobs:
           name: result-${{ matrix.version }}
           path: |
             result-${{ matrix.version }}.json
+            meta-${{ matrix.version }}.json
             out-${{ matrix.version }}.apk
           retention-days: 7
           if-no-files-found: error
@@ -328,6 +362,9 @@ jobs:
       GH_TOKEN: ${{ github.token }}
       RUSH_RECOMMENDED: ${{ needs.discover.outputs.rush_recommended }}
       HOODLES_RECOMMENDED: ${{ needs.discover.outputs.hoodles_recommended }}
+      STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
+      TOOLS: ${{ needs.discover.outputs.tools }}
+      RELEASE_TAG: 'proton-vpn'
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -345,6 +382,9 @@ jobs:
           merge-multiple: true
 
       - name: Combine and render
+        env:
+          STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
+          TOOLS: ${{ needs.discover.outputs.tools }}
         run: |
           set -euo pipefail
           python3 "$GITHUB_WORKSPACE/scripts/protonvpn-probe/table.py" results
