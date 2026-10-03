@@ -140,6 +140,7 @@
               "Voice over translation",
               "Wide search bar"
             ],
+            "patches_failed": [],
             "versions": [
               "21.39.522",
               "21.38.130",
