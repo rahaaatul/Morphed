@@ -247,6 +247,7 @@ jobs:
             -e "Change installer source" \
             -e "Disable Play Store updates" \
             --options-file ./options.json \
+            --striplibs="$ARCH" \
             --out="$out" \
             -r ./result.json \
             --keystore=./src/keystore/morphe.keystore \
@@ -315,10 +316,11 @@ jobs:
         run: |
           set -euo pipefail
 
-          shopt -s nullglob
-          apks=(release/*.apk)
+          # sort -Vr so the newest version leads the table, ordering version
+          # components numerically rather than lexically. An empty glob yields an
+          # empty array, so the guard below still fires.
+          mapfile -t apks < <(find release -maxdepth 1 -name '*.apk' | sort -Vr)
           patchlists=(applied/*.txt)
-          shopt -u nullglob
 
           if [[ ${#apks[@]} -eq 0 ]]; then
             echo "::error::No APKs were produced by any patch job"
