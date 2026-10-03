@@ -453,6 +453,7 @@ jobs:
           DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
           CHANNELS: ${{ needs.discover.outputs.channels }}
           REUSED: ${{ needs.discover.outputs.reused }}
+          STATE_FILE: patch_version.json
         run: |
           set -euo pipefail
 
@@ -478,11 +479,27 @@ jobs:
           # components numerically rather than lexically. An empty glob yields an
           # empty array, so the guard below still fires.
           mapfile -t apks < <(find release -maxdepth 1 -name '*.apk' | sort -Vr)
-          patchlists=(applied/*.txt)
+          mapfile -t patchlists < <(find applied -maxdepth 1 -name '*.txt' 2>/dev/null | sort)
 
           if [[ ${#apks[@]} -eq 0 ]]; then
             echo "::error::No APKs were produced by any patch job"
             exit 1
+          fi
+
+          # On a run where everything was already up to date nothing is patched, so no
+          # patch list comes back from the matrix jobs. Fall back to what the state file
+          # recorded for this patch tag, otherwise the body would lose the section.
+          : > applied-final.txt
+          if [[ ${#patchlists[@]} -gt 0 ]]; then
+            cat "${patchlists[@]}" | sed '/^$/d' | sort -u > applied-final.txt
+          elif [[ -f "$STATE_FILE" ]]; then
+            jq -r --arg o "$MORPHE_OWNER" --arg r "$MORPHE_PATCHES_REPO" \
+                  --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \
+                  '(.source[$o][$r][$t][$app].patches_applied // [])[]' \
+                  "$STATE_FILE" 2>/dev/null | sed '/^$/d' | sort -u > applied-final.txt
+            if [[ -s applied-final.txt ]]; then
+              echo "Reusing recorded patch list for v${PATCHES_VER}"
+            fi
           fi
 
           APKMD_VER=$(curl -fsSL "https://registry.npmjs.org/apkmirror-downloader/latest" | jq -r '.version')
@@ -507,13 +524,13 @@ jobs:
             echo "::warning::Could not resolve the latest MicroG release tag"
           fi
 
-          if [[ ${#patchlists[@]} -gt 0 ]]; then
-            total=$(cat "${patchlists[@]}" | sort -u | grep -c . || true)
+          if [[ -s applied-final.txt ]]; then
+            total=$(grep -c . applied-final.txt)
             {
               echo "<details>"
               echo "<summary><b>Patches applied</b> — ${total}</summary>"
               echo
-              cat "${patchlists[@]}" | sort -u | sed '/^$/d' | sed 's/^/- `/; s/$/`/'
+              sed 's/^/- `/; s/$/`/' applied-final.txt
               echo
               echo "</details>"
               echo
@@ -584,6 +601,7 @@ jobs:
             git checkout -q -B main origin/main
 
             versions_json=$(printf '%s\n' "${versions[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+            applied_json=$(jq -Rsc 'split("\n") | map(select(length > 0))' < applied-final.txt)
 
             # The file is committed, but treat a missing one as empty so a fresh
             # clone or a manual delete cannot fail the release after it published.
@@ -594,11 +612,13 @@ jobs:
                --arg org "$ORG" --arg repo "$REPO" \
                --arg pkg "$PACKAGE" --arg desktop "$DESKTOP_VER" \
                --argjson versions "$versions_json" \
+               --argjson applied "$applied_json" \
                '.source[$o][$r][$t][$app] = {
                   org: $org,
                   repo: $repo,
                   package: $pkg,
                   desktop: $desktop,
+                  patches_applied: $applied,
                   versions: $versions
                 }' "$STATE_FILE" > "$STATE_FILE.tmp"
             mv "$STATE_FILE.tmp" "$STATE_FILE"
