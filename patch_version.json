@@ -1,0 +1,53 @@
+{
+  "source": {
+    "MorpheApp": {
+      "morphe-patches": {
+        "1.46.0-dev.1": {
+          "reddit": {
+            "org": "redditinc",
+            "repo": "reddit",
+            "package": "com.reddit.frontpage",
+            "desktop": "1.18.0-dev.6",
+            "versions": [
+              "2026.10.0",
+              "2026.14.0",
+              "2026.24.0",
+              "2026.37.0",
+              "2026.38.0",
+              "2026.39.0"
+            ]
+          },
+          "youtube": {
+            "org": "google-inc",
+            "repo": "youtube",
+            "package": "com.google.android.youtube",
+            "desktop": "1.18.0-dev.6",
+            "versions": [
+              "20.21.37",
+              "20.31.42",
+              "21.13.164",
+              "21.16.256",
+              "21.23.492",
+              "21.28.208",
+              "21.38.130",
+              "21.39.522"
+            ]
+          },
+          "youtube-music": {
+            "org": "google-inc",
+            "repo": "youtube-music",
+            "package": "com.google.android.apps.youtube.music",
+            "desktop": "1.18.0-dev.6",
+            "versions": [
+              "9.15.51",
+              "9.20.53",
+              "9.37.54",
+              "9.38.51",
+              "9.39.52"
+            ]
+          }
+        }
+      }
+    }
+  }
+}

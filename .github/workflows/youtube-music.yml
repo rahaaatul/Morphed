@@ -23,8 +23,10 @@ env:
   ARCH: arm64-v8a
   DPI: nodpi
   RELEASE_TAG: youtube-music
+  CUSTOM_APP_NAME: Music
   # Space separated app versions to never build, see the discovery step.
   EXCLUDE_VERSIONS: ''
+  DOWNLOAD_TYPE: apk
   MORPHE_OWNER: MorpheApp
   MORPHE_PATCHES_REPO: morphe-patches
   MORPHE_DESKTOP_REPO: morphe-desktop
@@ -40,6 +42,7 @@ jobs:
       matrix: ${{ steps.versions.outputs.matrix }}
       channels: ${{ steps.versions.outputs.channels }}
       reused: ${{ steps.versions.outputs.reused }}
+      versions: ${{ steps.versions.outputs.versions }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
       desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
     steps:
@@ -178,17 +181,31 @@ jobs:
           echo "$matrix" | jq . > /dev/null
           echo "$channels" | jq . > /dev/null
           echo "$reused" | jq . > /dev/null
+          echo "versions=$(printf '%s\n' "$versions" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "channels=$channels" >> "$GITHUB_OUTPUT"
           echo "reused=$reused" >> "$GITHUB_OUTPUT"
 
       - name: Generate options file
+        env:
+          CUSTOM_NAME: ${{ env.CUSTOM_APP_NAME }}
         run: |
           set -euo pipefail
           # Generated fresh from the downloaded patches so it never goes stale.
           # Patches missing from the file fall back to their default enabled state.
           java -jar morphe-desktop.jar options-create \
             -f "$PACKAGE" -o options.json -p patches.mpp
+
+          # Custom branding ships with a null name, which leaves the launcher label
+          # as-is. Set it here because the CLI has no flag that survives: -O is
+          # ignored, so the generated file is the only place this takes effect.
+          if [[ -n "$CUSTOM_NAME" ]]; then
+            jq --arg n "$CUSTOM_NAME" \
+              'map(.patches["Custom branding"].options.customName = $n)' \
+              options.json > options.tmp
+            mv options.tmp options.json
+            echo "Custom branding name: $CUSTOM_NAME"
+          fi
 
           echo "patch state:"
           jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | tee enabled.txt | wc -l
@@ -222,6 +239,48 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
+      - name: Restore APK cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
+          restore-keys: |
+            apk-cache-${{ env.APP_SLUG }}-
+
+      - name: Drop cache for unsupported versions
+        run: |
+          set -euo pipefail
+          # Morphe stops supporting old targets, so their cached originals are dead
+          # weight. Keeping only what this run discovered also clears anything the age
+          # check would refuse to reuse.
+          shopt -s nullglob
+          stale=(apk-cache/*)
+          shopt -u nullglob
+          if [[ ${#stale[@]} -eq 0 ]]; then
+            echo "No cached originals"
+            exit 0
+          fi
+          echo "Pruning cached originals outside the current version list"
+          while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
+            keep=0
+            for v in $VERSIONS; do
+              [[ "$f" == *"-${v}-"* ]] && { keep=1; break; }
+            done
+            if [[ $keep -eq 1 ]]; then
+              echo "  keeping $(basename "$f")"
+            else
+              echo "  dropping $(basename "$f")"
+              rm -f "$f"
+            fi
+          done < <(printf '%s\n' "${stale[@]}")
+
+      - name: Save APK cache
+        uses: actions/cache/save@v4
+        with:
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
@@ -239,23 +298,45 @@ jobs:
 
       - name: Download APK from APKMirror
         id: download
+        env:
+          CACHE_DIR: apk-cache
+          DOWNLOAD_TYPE: apk
+          VERSIONS: ${{ needs.discover.outputs.versions }}
         run: |
           set -euo pipefail
-          mkdir -p download release
+          mkdir -p download release "$CACHE_DIR"
+
+          # APKMirror is slow, so keep the untouched originals and reuse them when the
+          # exact file is already cached. ctime guards against a truncated entry left
+          # behind by an interrupted run, and the age check bounds reuse at 30 days.
+          cache_key="${ORG}-${REPO}-${APP_SLUG}-${{ matrix.version }}-${DOWNLOAD_TYPE}"
+
+          if [[ -s "$CACHE_DIR/$cache_key" ]] \
+             && [[ $(( $(date +%s) - $(stat -c%Y "$CACHE_DIR/$cache_key") )) -lt 2592000 ]]; then
+            age=$(( ($(date +%s) - $(stat -c%Y "$CACHE_DIR/$cache_key")) / 86400 ))
+            echo "Reusing cached original (${age}d old)"
+            cp "$CACHE_DIR/$cache_key" ./download/cached-original
+          fi
 
           # The published bin has no shebang, so it must be invoked through bun explicitly.
-          bun node_modules/apkmirror-downloader/dist/cli.js download \
-            "$ORG" "$REPO" \
-            --version "${{ matrix.version }}" \
-            -a "$ARCH" \
-            -d "$DPI" \
-            --outdir ./download \
-            || echo "apkmd exited non-zero"
+          if [[ ! -s ./download/cached-original ]]; then
+            bun node_modules/apkmirror-downloader/dist/cli.js download \
+              "$ORG" "$REPO" \
+              --version "${{ matrix.version }}" \
+              -a "$ARCH" \
+              -d "$DPI" \
+              --outdir ./download \
+              || echo "apkmd exited non-zero"
+          fi
 
           # apkmd exits 0 even when the download fails, so the file is the only reliable check.
           shopt -s nullglob
           apks=(./download/*.apk)
           shopt -u nullglob
+
+          if [[ ${#apks[@]} -eq 0 && -s ./download/cached-original ]]; then
+            apks=(./download/cached-original)
+          fi
 
           if [[ ${#apks[@]} -eq 0 ]]; then
             echo "::error::No APK downloaded for ${{ matrix.version }}"
@@ -263,6 +344,8 @@ jobs:
           fi
 
           src="${apks[0]}"
+          # Cache only a completed download, never a partial one.
+          cp "$src" "$CACHE_DIR/$cache_key"
           dest="./download/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apk"
           mv "$src" "$dest"
           echo "name=$dest" >> "$GITHUB_OUTPUT"
@@ -495,6 +578,10 @@ jobs:
             git checkout -q -B main origin/main
 
             versions_json=$(printf '%s\n' "${versions[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+
+            # The file is committed, but treat a missing one as empty so a fresh
+            # clone or a manual delete cannot fail the release after it published.
+            [[ -f "$STATE_FILE" ]] || printf '{}\n' > "$STATE_FILE"
 
             jq --arg o "$MORPHE_OWNER" --arg r "$MORPHE_PATCHES_REPO" \
                --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \

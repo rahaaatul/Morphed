@@ -24,6 +24,8 @@ env:
   RELEASE_TAG: reddit
   # Space separated app versions to never build, see the discovery step.
   EXCLUDE_VERSIONS: '2024.02.0'
+  DOWNLOAD_TYPE: bundle
+  DPI_ARG: 480-640dpi
   MORPHE_OWNER: MorpheApp
   MORPHE_PATCHES_REPO: morphe-patches
   MORPHE_DESKTOP_REPO: morphe-desktop
@@ -38,6 +40,7 @@ jobs:
       matrix: ${{ steps.versions.outputs.matrix }}
       channels: ${{ steps.versions.outputs.channels }}
       reused: ${{ steps.versions.outputs.reused }}
+      versions: ${{ steps.versions.outputs.versions }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
       desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
     steps:
@@ -176,6 +179,7 @@ jobs:
           echo "$matrix" | jq . > /dev/null
           echo "$channels" | jq . > /dev/null
           echo "$reused" | jq . > /dev/null
+          echo "versions=$(printf '%s\n' "$versions" | tr '\n' ' ')" >> "$GITHUB_OUTPUT"
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           echo "channels=$channels" >> "$GITHUB_OUTPUT"
           echo "reused=$reused" >> "$GITHUB_OUTPUT"
@@ -220,6 +224,52 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
+      - name: Restore APK cache
+        uses: actions/cache/restore@v4
+        with:
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
+          restore-keys: |
+            apk-cache-${{ env.APP_SLUG }}-
+
+      - name: Drop cache for unsupported versions
+        run: |
+          set -euo pipefail
+          # Morphe stops supporting old targets, so their cached originals are dead
+          # weight. Keeping only what this run discovered also expires anything the
+          # 30 day window has not already cleared.
+          shopt -s nullglob
+          stale=(apk-cache/*)
+          shopt -u nullglob
+          if [[ ${#stale[@]} -eq 0 ]]; then
+            echo "No cached originals"
+            exit 0
+          fi
+          echo "Pruning cached originals not in the current version list"
+          printf '%s\n' "${stale[@]}" | sed "s|^apk-cache/||" | sort > /tmp/cached.txt
+          echo "$VERSIONS" | tr ' ' '\n' | grep -v '^$' | sort > /tmp/current.txt
+          while read -r f; do
+            key=$(basename "$f")
+            # Keys embed the version as -<version>-<type...>; match on any known version.
+            keep=0
+            while read -r v; do
+              [[ -n "$v" ]] || continue
+              if [[ "$key" == *"-${v}-"* ]]; then keep=1; break; fi
+            done < /tmp/current.txt
+            if [[ $keep -eq 0 ]]; then
+              echo "  dropping $key"
+              rm -f "$f"
+            else
+              echo "  keeping $key"
+            fi
+          done < /tmp/cached.txt
+
+      - name: Save APK cache
+        uses: actions/cache/save@v4
+        with:
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
 
@@ -237,9 +287,14 @@ jobs:
 
       - name: Download APK from APKMirror
         id: download
+        env:
+          CACHE_DIR: apk-cache
+          DOWNLOAD_TYPE: ${{ env.DOWNLOAD_TYPE }}
+          DPI_ARG: ${{ env.DPI_ARG }}
+          VERSIONS: ${{ needs.discover.outputs.versions }}
         run: |
           set -euo pipefail
-          mkdir -p download release
+          mkdir -p download release "$CACHE_DIR"
 
           # The published bin has no shebang, so it must be invoked through bun explicitly.
           #
@@ -256,6 +311,19 @@ jobs:
           # Prefer 480-640dpi, the leanest arm64 bundle, then relax if APKMirror changes
           # what it publishes. 2024.02.0 predates bundles and answers to nodpi instead.
           rm -rf ./download && mkdir -p download
+
+          # APKMirror is slow and rate-limited, so keep the untouched originals for
+          # 30 days and reuse them when the exact file is already cached. The key
+          # covers the coordinates, filters and version, and ctime guards against a
+          # truncated entry from an interrupted earlier run.
+          cache_key="${ORG}-${REPO}-${APP_SLUG}-${{ matrix.version }}-${DOWNLOAD_TYPE}${DPI_ARG:+-$DPI_ARG}"
+
+          if [[ -f "$CACHE_DIR/$cache_key" ]] \
+             && [[ -s "$CACHE_DIR/$cache_key" ]] \
+             && [[ $(( $(date +%s) - $(stat -c%Y "$CACHE_DIR/$cache_key") )) -lt 2592000 ]]; then
+            echo "Using cached original (age $(( ( $(date +%s) - $(stat -c%Y "$CACHE_DIR/$cache_key") ) / 86400 ))d)"
+            cp "$CACHE_DIR/$cache_key" ./download/original
+          fi
 
           fetch() {
             bun node_modules/apkmirror-downloader/dist/cli.js download \
@@ -284,10 +352,17 @@ jobs:
           # apkmd exits 0 even when the download fails, so the file is the only reliable check.
           src=$(got)
 
+          if [[ -z "$src" && -s ./download/original ]]; then
+            src=./download/original
+          fi
+
           if [[ -z "$src" ]]; then
             echo "::error::No APK or bundle downloaded for ${{ matrix.version }}"
             exit 1
           fi
+
+          # Only a completed download is cached, so a partial file is never reused.
+          cp "$src" "$CACHE_DIR/$cache_key"
 
           dest="./download/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apkm"
           mv "$src" "$dest"
@@ -504,6 +579,10 @@ jobs:
             git checkout -q -B main origin/main
 
             versions_json=$(printf '%s\n' "${versions[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')
+
+            # The file is committed, but treat a missing one as empty so a fresh
+            # clone or a manual delete cannot fail the release after it published.
+            [[ -f "$STATE_FILE" ]] || printf '{}\n' > "$STATE_FILE"
 
             jq --arg o "$MORPHE_OWNER" --arg r "$MORPHE_PATCHES_REPO" \
                --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \
