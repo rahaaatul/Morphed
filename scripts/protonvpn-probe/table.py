@@ -1,19 +1,18 @@
 #!/usr/bin/env python3
 """Render probe-result.json as the Patch | Supported Version matrix.
 
-One row per patch, with the version column collapsed using rowspan so a version
-is written once instead of once per patch that supports it.
-
-A version's patches need not be contiguous, and rowspan spans rows, so a version
-is emitted once per maximal run of consecutive patches that support it. That way
-a version is never visually attached to a patch it does not support.
+A plain markdown table, one row per patch, with every version that supports it
+on its own line inside the cell. Followed by a warning naming the versions that
+could not be patched completely, and a tip pointing at the one that could.
 
 Reads probe-result.json from the current directory and writes probe-body.md.
 """
 import json
+import os
 
 data = json.load(open("probe-result.json"))
 records = data["versions"]
+EXPECTED = [p.strip() for p in os.environ.get("EXPECTED_PATCHES", "").split("\n") if p.strip()]
 
 # First-seen order, applied before failed within a version, so patches that work
 # lead and ones that never applied still get a row.
@@ -26,70 +25,47 @@ for rec in records:
     for name in rec["applied"]:
         supported[name].append(rec["version"])
 
-version_rows = {}
-for v in {v for vers in supported.values() for v in vers}:
-    version_rows[v] = {i for i, name in enumerate(order) if v in supported[name]}
-
-
-def runs(indices):
-    """Split patch indices into maximal consecutive runs."""
-    out = []
-    for i in sorted(indices):
-        if out and i == out[-1][-1] + 1:
-            out[-1].append(i)
-        else:
-            out.append([i])
-    return out
-
-
-# A cell belongs on the first row of its run; rows that start mid-run emit nothing.
-start_of = {}
-for v, idxs in version_rows.items():
-    for run in runs(idxs):
-        start_of.setdefault(run[0], []).append((v, len(run)))
-
-rows = []
-for i, name in enumerate(order):
+rows = ["| Patch | Supported Version |", "| ----- | ----------------- |"]
+for name in order:
     vers = supported[name]
-    cells = "".join(
-        ('<td>' if span == 1 else f'<td rowspan="{span}">') + f"`{v}`</td>"
-        for v, span in start_of.get(i, []))
-    if not cells and not vers:
-        cells = "<td>&mdash;</td>"
-    rows.append(f"    <tr><td>{name}</td>{cells}</tr>")
-
-table = ("<table>\n"
-         "  <tr><th>Patch</th><th>Supported Version</th></tr>\n"
-         + "\n".join(rows) + "\n"
-         " </table>")
+    # A markdown cell cannot hold a literal newline, so <br> separates versions.
+    cell = "<br>".join(f"`{v}`" for v in vers) if vers else "&mdash;"
+    rows.append(f"| {name} | {cell} |")
+table = "\n".join(rows)
 
 shipped = [r["version"] for r in records if r["built"]]
 body = [
     "Automated probe of the Proton VPN patch matrix. Do not edit by hand.",
     "",
-    f"- Anchor, newest version where every patch applied: `{data['anchor']}`",
-    f"- Versions with a built APK: "
-    f"{', '.join(f'`{v}`' for v in shipped) if shipped else '_none_'}",
     f"- Package: `{data['package']}`",
+    f"- Versions built: "
+    f"{', '.join(f'`{v}`' for v in shipped) if shipped else '_none_'}",
     "",
     "## Patch | Supported Version",
     "",
     table,
     "",
-    "A version is listed once and spans every patch it supports. `5.20.57.0` sits "
-    "across the first two rows because it has no working premium unlock.",
-    "",
-    "## Per version detail",
-    "",
-    "| Version | Applied | Failed | APK built |",
-    "| ------- | ------- | ------ | --------- |",
 ]
-for r in records:
-    a = "<br>".join(f"`{n}`" for n in r["applied"]) or "&mdash;"
-    fl = "<br>".join(f"`{n}`" for n in r["failed"]) or "&mdash;"
-    body.append(f"| `{r['version']}` | {a} | {fl} | {'yes' if r['built'] else 'no'} |")
 
-body += ["", "<details><summary>Raw probe output</summary>", "",
+# A version that is missing patches is called out by name, so nobody installs it
+# expecting the full set and silently gets less.
+partial = [(r["version"], [p for p in EXPECTED if p not in r["applied"]])
+           for r in records]
+partial = [(v, m) for v, m in partial if m]
+if partial:
+    body += ["> [!WARNING]", "> **Not every patch applies to every version.**"]
+    for v, missing in partial:
+        listed = ", ".join(f"`{p}`" for p in missing)
+        body.append(f"> - `{v}` is missing {listed}.")
+    body.append("")
+
+if data["anchor"]:
+    body += ["> [!TIP]", f"> Install `{data['anchor']}`. It is the newest version where "
+                        "every patch applied cleanly.", ""]
+else:
+    body += ["> [!WARNING]", "> No published version had every patch applied.", ""]
+
+body += ["<details><summary>Raw probe output</summary>", "",
          "```json", json.dumps(data, indent=2), "```", "", "</details>", ""]
 
 with open("probe-body.md", "w") as fh:
