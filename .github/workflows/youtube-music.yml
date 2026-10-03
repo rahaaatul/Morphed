@@ -1,0 +1,360 @@
+name: Experimental APKMirror YouTube Music
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 0,12 * * *'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: youtube-music
+  cancel-in-progress: false
+
+env:
+  REPO_FULL: ${{ github.repository }}
+  APP_SLUG: youtube-music
+  APP_TITLE: YouTube Music
+  PACKAGE: com.google.android.apps.youtube.music
+  ORG: google-inc
+  REPO: youtube-music
+  ARCH: arm64-v8a
+  DPI: nodpi
+  RELEASE_TAG: youtube-music
+  MOPHE_REPO: MorpheApp/morphe-patches
+  MOPHE_DESKTOP_REPO: MorpheApp/morphe-desktop
+  ACTIONS_STEP_DEBUG: true
+  ACTIONS_RUNNER_DEBUG: true
+
+jobs:
+  discover:
+    name: Discover supported versions
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+      patches_ver: ${{ steps.meta.outputs.patches_ver }}
+      desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Fetch Morphe patches and patcher
+        id: meta
+        run: |
+          set -euo pipefail
+          # Consider both the stable and prerelease channels and prefer prereleases,
+          # falling back to stable when a channel has no usable release. Drafts are
+          # excluded. Newest first, and the newest release carrying the wanted asset wins.
+          order='([.[] | select(.draft == false)]
+                   | sort_by(.published_at) | reverse) as $all
+                   | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])'
+
+          releases() {
+            curl -fsSL "https://api.github.com/repos/$1/releases?per_page=30"
+          }
+
+          patches_url=$(releases "$MOPHE_REPO" \
+            | jq -r "$order"' | .[].assets[]? | select(.name | endswith(".mpp")) | .browser_download_url' | head -1)
+
+          desktop_url=$(releases "$MOPHE_DESKTOP_REPO" \
+            | jq -r "$order"' | .[].assets[]? | select(.name | endswith(".jar")) | .browser_download_url' | head -1)
+
+          [[ -n "$patches_url" && "$patches_url" != "null" ]] || { echo "No .mpp asset found"; exit 1; }
+          [[ -n "$desktop_url" && "$desktop_url" != "null" ]] || { echo "No .jar asset found"; exit 1; }
+
+          curl -fsSL -o patches.mpp "$patches_url"
+          curl -fsSL -o morphe-desktop.jar "$desktop_url"
+
+          echo "patches_ver=$(basename "$patches_url" .mpp | sed 's/^patches-//')" >> "$GITHUB_OUTPUT"
+          echo "desktop_ver=$(basename "$desktop_url" .jar | sed 's/^morphe-desktop-//;s/-all$//')" >> "$GITHUB_OUTPUT"
+
+          echo "patches: $(basename "$patches_url")"
+          echo "patcher: $(basename "$desktop_url")"
+          ls -la patches.mpp morphe-desktop.jar
+
+      - name: List supported versions
+        id: versions
+        run: |
+          set -euo pipefail
+          # -x includes experimental app versions, without it only stable targets are listed.
+          java -jar morphe-desktop.jar list-versions -x -f "$PACKAGE" --patches patches.mpp \
+            | tee versions-raw.txt
+
+          versions=$(sed -nE 's/^[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' versions-raw.txt)
+
+          if [[ -z "$versions" ]]; then
+            echo "No supported versions found for $PACKAGE"
+            exit 1
+          fi
+
+          echo "Supported versions:"
+          echo "$versions"
+
+          matrix='{"include":['
+          first=1
+          while read -r v; do
+            [[ -n "$v" ]] || continue
+            [[ $first -eq 1 ]] || matrix+=','
+            matrix+="{\"version\":\"$v\"}"
+            first=0
+          done <<< "$versions"
+          matrix+=']}'
+
+          echo "$matrix" | jq . > /dev/null
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+
+      - name: Generate options file
+        run: |
+          set -euo pipefail
+          # Generated fresh from the downloaded patches so it never goes stale.
+          # Patches missing from the file fall back to their default enabled state.
+          java -jar morphe-desktop.jar options-create \
+            -f "$PACKAGE" -o options.json -p patches.mpp
+
+          echo "patch state:"
+          jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | tee enabled.txt | wc -l
+
+      - name: Upload patcher artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: morphe-toolchain
+          path: |
+            patches.mpp
+            morphe-desktop.jar
+            options.json
+          retention-days: 1
+          if-no-files-found: error
+
+  patch:
+    name: Patch ${{ matrix.version }}
+    needs: discover
+    runs-on: ubuntu-latest
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install apkmirror-downloader
+        run: |
+          set -euo pipefail
+          bun add apkmirror-downloader
+          echo "installed version:"
+          grep -o 'apkmirror-downloader@[0-9.]*' bun.lock | head -1
+
+      - name: Download patcher artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: morphe-toolchain
+
+      - name: Download APK from APKMirror
+        id: download
+        run: |
+          set -euo pipefail
+          mkdir -p download release
+
+          # The published bin has no shebang, so it must be invoked through bun explicitly.
+          bun node_modules/apkmirror-downloader/dist/cli.js download \
+            "$ORG" "$REPO" \
+            --version "${{ matrix.version }}" \
+            -a "$ARCH" \
+            -d "$DPI" \
+            --outdir ./download \
+            || echo "apkmd exited non-zero"
+
+          # apkmd exits 0 even when the download fails, so the file is the only reliable check.
+          shopt -s nullglob
+          apks=(./download/*.apk)
+          shopt -u nullglob
+
+          if [[ ${#apks[@]} -eq 0 ]]; then
+            echo "::error::No APK downloaded for ${{ matrix.version }}"
+            exit 1
+          fi
+
+          src="${apks[0]}"
+          dest="./download/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apk"
+          mv "$src" "$dest"
+          echo "name=$dest" >> "$GITHUB_OUTPUT"
+          echo "size=$(du -h "$dest" | cut -f1)" >> "$GITHUB_OUTPUT"
+          ls -la "$dest"
+
+      - name: Patch APK
+        id: patch
+        run: |
+          set -euo pipefail
+          in="./download/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apk"
+          out="./release/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apk"
+
+          args=()
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%$'\r'}"
+            [[ -n "$line" ]] || continue
+            args+=(-e "${line%%|*}")
+          done < src/patches/${APP_SLUG}-morphe/include-patches
+
+          while IFS= read -r line || [[ -n "$line" ]]; do
+            line="${line%$'\r'}"
+            [[ -n "$line" ]] || continue
+            args+=(-d "$line")
+          done < src/patches/${APP_SLUG}-morphe/exclude-patches
+
+          echo "patch selection: ${#args[@]} flags"
+          java -jar morphe-desktop.jar patch \
+            -p patches.mpp \
+            "${args[@]}" \
+            -e "Change installer source" \
+            -e "Disable Play Store updates" \
+            --options-file ./options.json \
+            --out="$out" \
+            -r ./result.json \
+            --keystore=./src/keystore/morphe.keystore \
+            --force \
+            --continue-on-error \
+            "$in"
+
+          if [[ ! -s "$out" ]]; then
+            echo "::error::Patch produced no output for ${{ matrix.version }}"
+            exit 1
+          fi
+
+          # Patch names for the release body. Every leg uses the same patch bundle
+          # and options, so these are expected to match across versions.
+          jq -r '.appliedPatches[].name' result.json > "applied-${{ matrix.version }}.txt"
+          echo "applied patches: $(wc -l < "applied-${{ matrix.version }}.txt")"
+          echo "failed patches: $(jq '.failedPatches | length' result.json)"
+
+          ls -la "$out"
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk-${{ matrix.version }}
+          path: ./release/${{ env.APP_SLUG }}-${{ matrix.version }}-${{ env.ARCH }}.apk
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload applied patch list
+        uses: actions/upload-artifact@v4
+        with:
+          name: applied-${{ matrix.version }}
+          path: ./applied-${{ matrix.version }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [discover, patch]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Download patched APKs
+        id: collect
+        uses: actions/download-artifact@v4
+        with:
+          pattern: apk-*
+          path: release
+          merge-multiple: true
+
+      - name: Download applied patch lists
+        uses: actions/download-artifact@v4
+        with:
+          pattern: applied-*
+          path: applied
+          merge-multiple: true
+
+      - name: Verify and generate release body
+        env:
+          PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
+          DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
+        run: |
+          set -euo pipefail
+
+          shopt -s nullglob
+          apks=(release/*.apk)
+          patchlists=(applied/*.txt)
+          shopt -u nullglob
+
+          if [[ ${#apks[@]} -eq 0 ]]; then
+            echo "::error::No APKs were produced by any patch job"
+            exit 1
+          fi
+
+          APKMD_VER=$(curl -fsSL "https://registry.npmjs.org/apkmirror-downloader/latest" | jq -r '.version')
+          DOWNLOAD_BASE="https://github.com/${REPO_FULL}/releases/download"
+
+          {
+            echo "## ${APP_TITLE}"
+            echo
+          } > release-notes.md
+
+          if [[ ${#patchlists[@]} -gt 0 ]]; then
+            total=$(cat "${patchlists[@]}" | sort -u | grep -c . || true)
+            {
+              echo "<details>"
+              echo "<summary><b>Patches applied</b> — ${total}</summary>"
+              echo
+              cat "${patchlists[@]}" | sort -u | sed '/^$/d' | sed 's/^/- `/; s/$/`/'
+              echo
+              echo "</details>"
+              echo
+            } >> release-notes.md
+          fi
+
+          {
+            echo "| Version | Arch | Size | Download |"
+            echo "| ------- | --------- | ----- | ------------------------ |"
+          } >> release-notes.md
+
+          for apk in "${apks[@]}"; do
+            name=$(basename "$apk")
+            size_mb=$(( $(stat -c%s "$apk") / 1048576 ))
+            stem="${name%.apk}"
+            version="${stem#${APP_SLUG}-}"
+            version="${version%-${ARCH}}"
+            echo "| $version | $ARCH | ${size_mb} MB | [$name](${DOWNLOAD_BASE}/${RELEASE_TAG}/$name) |" >> release-notes.md
+          done
+
+          {
+            echo
+            echo "## Tools"
+            echo "- [Morphe Desktop](https://github.com/MorpheApp/morphe-desktop) - \`v${DESKTOP_VER}\`"
+            echo "- [Morphe Patches](https://github.com/MorpheApp/morphe-patches/) - \`v${PATCHES_VER}\`"
+            echo "- [APKMD](https://github.com/tanishqmanuja/apkmirror-downloader) - \`v${APKMD_VER}\`"
+          } >> release-notes.md
+
+          cat release-notes.md
+
+      - name: Publish
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          tag: ${{ env.RELEASE_TAG }}
+          name: ${{ env.APP_SLUG }} (Morphe)
+          bodyFile: release-notes.md
+          artifacts: |
+            release/*.apk
+          allowUpdates: true
+          removeArtifacts: true
+          prerelease: true
+          makeLatest: false
