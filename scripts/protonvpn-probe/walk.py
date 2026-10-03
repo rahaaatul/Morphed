@@ -28,20 +28,31 @@ def sh(cmd):
 
 
 def api(path):
+    """GET a GitHub API path. Fails loudly: a silently empty list here would look
+    like "this project has no releases" rather than "the call was refused"."""
     r = sh(["gh", "api", path])
     if r.returncode != 0:
+        msg = (r.stderr or r.stdout).strip().splitlines()
+        print(f"    api failed for {path}: {msg[-1] if msg else 'no output'}",
+              flush=True)
         return None
     try:
         return json.loads(r.stdout)
-    except json.JSONDecodeError:
+    except json.JSONDecodeError as exc:
+        print(f"    api returned unparseable JSON for {path}: {exc}", flush=True)
         return None
 
 
 def release_tags():
     out = []
-    for rel in api(f"repos/{UPSTREAM}/releases?per_page=40") or []:
+    releases = api(f"repos/{UPSTREAM}/releases?per_page=40")
+    if releases is None:
+        sys.exit(f"could not list releases for {UPSTREAM}")
+    for rel in releases:
         if not rel.get("draft"):
             out.append(rel["tag_name"])
+    if not out:
+        sys.exit(f"{UPSTREAM} returned no published releases")
     return out[:MAXV]
 
 

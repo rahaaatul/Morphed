@@ -93,6 +93,10 @@ jobs:
                      | map(select(.value.enabled) | .key) | join(", "))"' options.json
 
       - name: Walk releases newest first until every patch applies
+        env:
+          # Without a token the release listing is refused, and an unauthenticated
+          # call is rate limited on top of that.
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           mkdir -p work && cd work
