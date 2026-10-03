@@ -12,7 +12,12 @@ import os
 import re
 import sys
 
-RESULTS_DIR = sys.argv[1] if len(sys.argv) > 1 else "."
+RESULTS_DIR = sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith("-") else "."
+# Optional: the ship selection, so the body describes exactly what is published. Without
+# it every measured version is described, which is what the probe wants.
+SHIP_FILE = None
+if "--ship" in sys.argv:
+    SHIP_FILE = sys.argv[sys.argv.index("--ship") + 1]
 def patch_list(raw):
     """Accept either a JSON array or newline separated text.
 
@@ -34,9 +39,9 @@ EXPERIMENTAL = set(json.loads(os.environ.get("EXPERIMENTAL_VERSIONS", "[]")))
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "")
 # The download cell shows an icon linking to the asset instead of the file name. Served
 # from the repository rather than attached to the release so one file covers every
-# release. ICON_WIDTH keeps a 512px source from dominating the table.
+# release. ICON_WIDTH keeps the 512px source down to an inline glyph.
 ICON_URL = os.environ.get("ICON_URL", "").strip()
-ICON_WIDTH = os.environ.get("ICON_WIDTH", "32")
+ICON_WIDTH = os.environ.get("ICON_WIDTH", "16")
 REPO_FULL = os.environ.get("REPO_FULL", "")
 ARCH = os.environ.get("ARCH", "arm64-v8a")
 TOOLS = json.loads(os.environ.get("TOOLS", "[]"))
@@ -83,11 +88,23 @@ if not records:
     sys.exit(f"no result-*.json found in {RESULTS_DIR}")
 
 records.sort(key=lambda r: version_key(r["version"]), reverse=True)
-tested = [r["version"] for r in records]
 
-# The recommendation is the newest version where every expected patch applied.
-anchor = next((r["version"] for r in records
-               if all(p in r["applied"] for p in EXPECTED)), None)
+ship_versions, ship_anchor = None, None
+if SHIP_FILE and os.path.exists(SHIP_FILE):
+    with open(SHIP_FILE) as fh:
+        sel = json.load(fh)
+    ship_versions = sel.get("ship") or []
+    ship_anchor = sel.get("anchor")
+    # Only what is published may be described, and in the order it was selected.
+    by_version = {r["version"]: r for r in records}
+    records = [by_version[v] for v in ship_versions if v in by_version]
+    missing = [v for v in ship_versions if v not in by_version]
+    if missing:
+        sys.exit(f"no result for shipped version(s): {', '.join(missing)}")
+
+# The recommendation is the newest shipped version where every patch applied.
+anchor = ship_anchor or next(
+    (r["version"] for r in records if all(p in r["applied"] for p in EXPECTED)), None)
 
 
 def channel_of(version):
