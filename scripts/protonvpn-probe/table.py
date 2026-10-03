@@ -127,9 +127,9 @@ def applied_on(name):
 
 
 body = ["## Patches", "",
-        "|Patch|Applied on|", "| :--- | ---: |"]
+        "| Patch | Applied on |", "| --- | --- |"]
 for name in EXPECTED:
-    body.append(f"|{name}|{applied_on(name)}|")
+    body.append(f"| {name} | {applied_on(name)} |")
 
 if RUSH_RECOMMENDED or HOODLES_RECOMMENDED:
     notes = []
@@ -150,20 +150,20 @@ if bool(RELEASE_TAG) != bool(REPO_FULL):
 if RELEASE_TAG and REPO_FULL:
     body += ["", "## Downloads", "",
              "| Version | Channel | Arch | Size | Download |",
-             "| :------- | :-------: | :---------: | :-----: | ------------------------: |"]
+             "| --- | --- | --- | --- | --- |"]
     for r in kept:
         name = f"{RELEASE_TAG}-v{r['version']}.apk"
         url = f"https://github.com/{REPO_FULL}/releases/download/{RELEASE_TAG}/{name}"
         channel = channel_of(r["version"])
         size = fmt_size(r["size"]) if r["size"] else "&mdash;"
         arch = r["arch"] or ARCH
-        body.append(f"|`{r['version']}`|{channel}|{arch}|{size}|[{name}]({url})|")
+        body.append(f"| `{r['version']}` | {channel} | {arch} | {size} | [{name}]({url}) |")
 
 if TOOLS:
-    body += ["", "## Tools used", "", "|Tool|Version|", "| :--- | ---: |"]
+    body += ["", "## Tools used", "", "| Tool | Version |", "| --- | --- |"]
     for name, url, version in TOOLS:
         tag_url = url.rstrip("/") + f"/releases/tag/{version}" if version else url
-        body.append(f"|[{name}]({url})|[`{version}`]({tag_url})|")
+        body.append(f"| [{name}]({url}) | [`{version}`]({tag_url}) |")
 
 # The recommendation and the source recommendations lead the body.
 lead = []
