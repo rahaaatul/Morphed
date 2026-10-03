@@ -34,6 +34,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       matrix: ${{ steps.versions.outputs.matrix }}
+      channels: ${{ steps.versions.outputs.channels }}
       patches_ver: ${{ steps.meta.outputs.patches_ver }}
       desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
     steps:
@@ -88,7 +89,14 @@ jobs:
           java -jar morphe-desktop.jar list-versions -x -f "$PACKAGE" --patches patches.mpp \
             | tee versions-raw.txt
 
+          # The patch bundle flags some targets experimental, and -x is the only way
+          # to observe it. Listing without -x yields just the stable targets, so the
+          # difference marks the experimental ones.
+          java -jar morphe-desktop.jar list-versions -f "$PACKAGE" --patches patches.mpp \
+            | tee versions-stable.txt
+
           versions=$(sed -nE 's/^[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' versions-raw.txt)
+          stable=$(sed -nE 's/^[[:space:]]*([0-9]+\.[0-9]+\.[0-9]+).*/\1/p' versions-stable.txt)
 
           if [[ -z "$versions" ]]; then
             echo "No supported versions found for $PACKAGE"
@@ -97,19 +105,33 @@ jobs:
 
           echo "Supported versions:"
           echo "$versions"
+          echo "Stable targets:"
+          echo "${stable:-<none>}"
 
           matrix='{"include":['
+          channels='{'
           first=1
           while read -r v; do
             [[ -n "$v" ]] || continue
-            [[ $first -eq 1 ]] || matrix+=','
-            matrix+="{\"version\":\"$v\"}"
+
+            if printf '%s\n' "$stable" | grep -qxF "$v"; then
+              channel=Stable
+            else
+              channel=Beta
+            fi
+
+            [[ $first -eq 1 ]] || { matrix+=','; channels+=','; }
+            matrix+="{\"version\":\"$v\",\"channel\":\"$channel\"}"
+            channels+="\"$v\":\"$channel\""
             first=0
           done <<< "$versions"
           matrix+=']}'
+          channels+='}'
 
           echo "$matrix" | jq . > /dev/null
+          echo "$channels" | jq . > /dev/null
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          echo "channels=$channels" >> "$GITHUB_OUTPUT"
 
       - name: Generate options file
         run: |
@@ -134,7 +156,7 @@ jobs:
           if-no-files-found: error
 
   patch:
-    name: Patch ${{ matrix.version }}
+    name: Patch ${{ matrix.version }} (${{ matrix.channel }})
     needs: discover
     runs-on: ubuntu-24.04
     continue-on-error: false
@@ -289,6 +311,7 @@ jobs:
         env:
           PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
           DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
+          CHANNELS: ${{ needs.discover.outputs.channels }}
         run: |
           set -euo pipefail
 
@@ -321,8 +344,8 @@ jobs:
           fi
 
           {
-            echo "| Version | Arch | Size | Download |"
-            echo "| ------- | --------- | ----- | ------------------------ |"
+            echo "| Version | Channel | Arch | Size | Download |"
+            echo "| ------- | ------- | --------- | ----- | ------------------------ |"
           } >> release-notes.md
 
           for apk in "${apks[@]}"; do
@@ -331,7 +354,8 @@ jobs:
             stem="${name%.apk}"
             version="${stem#${APP_SLUG}-}"
             version="${version%-${ARCH}}"
-            echo "| $version | $ARCH | ${size_mb} MB | [$name](${DOWNLOAD_BASE}/${RELEASE_TAG}/$name) |" >> release-notes.md
+            channel=$(jq -r --arg v "$version" '.[$v] // "Unknown"' <<< "$CHANNELS")
+            echo "| $version | $channel | $ARCH | ${size_mb} MB | [$name](${DOWNLOAD_BASE}/${RELEASE_TAG}/$name) |" >> release-notes.md
           done
 
           {
