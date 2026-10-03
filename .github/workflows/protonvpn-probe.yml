@@ -24,14 +24,9 @@ env:
   UPSTREAM: ProtonVPN/android-app
   RUSH_OWNER_REPO: rushiranpise/morphe-patches
   HOODLES_OWNER_REPO: hoo-dles/morphe-patches
-  # Kept in step with src/patches/Proton-VPN-*/ in this repo. The first two come from
-  # MorpheApp's bundle, the next from rushiranpise's, the last four from hoo-dles's.
-  EXPECTED_PATCHES: |
-    Unlock VPN Plus
-    Unlock LAN connections
-    Remove delay
-    Unlock custom DNS
-    Unlock split tunneling
+  # Forced on from MorpheApp's shared set, which declares no Proton VPN bundle of its
+  # own. Everything else is discovered from the bundles at run time.
+  EXTRA_PATCHES: |
     Change installer source
     Disable Play Store updates
   # These two live in every bundle's shared set and apply to any app, so a version
@@ -49,6 +44,7 @@ jobs:
       matrix: ${{ steps.plan.outputs.matrix }}
       bundles: ${{ steps.plan.outputs.bundles }}
       toolchain_key: ${{ steps.plan.outputs.toolchain_key }}
+      patches: ${{ steps.plan.outputs.patches }}
       rush_recommended: ${{ steps.plan.outputs.rush_recommended }}
       hoodles_recommended: ${{ steps.plan.outputs.hoodles_recommended }}
       stable_versions: ${{ steps.plan.outputs.stable_versions }}
@@ -138,6 +134,24 @@ jobs:
             echo "hoodles_recommended=$hoo_rec"
           } >> "$GITHUB_OUTPUT"
 
+          # Every patch the sources recommend for this app, discovered rather than
+          # listed here: whatever each bundle ships enabled for this package, in the
+          # order the bundle lists them, grouped by source, then the forced extras.
+          recommended() {
+            java -jar toolchain/morphe-desktop.jar list-patches -f "$PACKAGE" \
+              --patches="toolchain/$1" 2>/dev/null \
+              | awk '/^Name: /{n=substr($0,7)} /^Enabled: /{if($2=="true") print n}'
+          }
+          patches=$(
+            {
+              recommended patches-rushiranpise.mpp
+              recommended patches-hoodles.mpp
+              printf '%s\n' "$EXTRA_PATCHES"
+            } | sed '/^$/d' | awk '!seen[$0]++' | jq -R . | jq -sc .
+          )
+          echo "patches: $patches"
+          echo "patches=$patches" >> "$GITHUB_OUTPUT"
+
           # Cover every release from the newest down to the oldest of the two stated
           # versions, so the matrix reaches a version both sources actually claim.
           # One tag per line. jq -r on a constructed array still prints JSON, brackets
@@ -211,6 +225,9 @@ jobs:
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     env:
       GH_TOKEN: ${{ github.token }}
+      # Discovered by the discover job, so a new patch added upstream appears in the
+      # body without touching this file.
+      EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -377,6 +394,7 @@ jobs:
       HOODLES_RECOMMENDED: ${{ needs.discover.outputs.hoodles_recommended }}
       STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
       TOOLS: ${{ needs.discover.outputs.tools }}
+      EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
       RELEASE_TAG: 'proton-vpn'
     steps:
       - name: Checkout
