@@ -18,6 +18,7 @@ GENERIC = [p.strip() for p in os.environ.get("GENERIC_PATCHES", "").split("\n") 
 RUSH_RECOMMENDED = os.environ.get("RUSH_RECOMMENDED", "").strip()
 HOODLES_RECOMMENDED = os.environ.get("HOODLES_RECOMMENDED", "").strip()
 STABLE = set(json.loads(os.environ.get("STABLE_VERSIONS", "[]")))
+EXPERIMENTAL = set(json.loads(os.environ.get("EXPERIMENTAL_VERSIONS", "[]")))
 RELEASE_TAG = os.environ.get("RELEASE_TAG", "")
 REPO_FULL = os.environ.get("REPO_FULL", "")
 ARCH = os.environ.get("ARCH", "arm64-v8a")
@@ -70,6 +71,16 @@ tested = [r["version"] for r in records]
 # The recommendation is the newest version where every expected patch applied.
 anchor = next((r["version"] for r in records
                if all(p in r["applied"] for p in EXPECTED)), None)
+
+
+def channel_of(version):
+    """Stable when a bundle lists the version, Beta when a bundle lists it as
+    experimental, otherwise Canary: nothing upstream claims it and --force carried it."""
+    if version in STABLE:
+        return "Stable"
+    if version in EXPERIMENTAL:
+        return "Beta"
+    return "Canary"
 
 
 def is_bust(rec):
@@ -131,7 +142,7 @@ if RELEASE_TAG and REPO_FULL:
     for r in kept:
         name = f"{RELEASE_TAG}-v{r['version']}.apk"
         url = f"https://github.com/{REPO_FULL}/releases/download/{RELEASE_TAG}/{name}"
-        channel = "Stable" if r["version"] in STABLE else "Canary"
+        channel = channel_of(r["version"])
         size = fmt_size(r["size"]) if r["size"] else "&mdash;"
         arch = r["arch"] or ARCH
         body.append(f"|`{r['version']}`|{channel}|{arch}|{size}|[{name}]({url})|")

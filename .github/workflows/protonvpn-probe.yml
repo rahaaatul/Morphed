@@ -48,6 +48,7 @@ jobs:
       rush_recommended: ${{ steps.plan.outputs.rush_recommended }}
       hoodles_recommended: ${{ steps.plan.outputs.hoodles_recommended }}
       stable_versions: ${{ steps.plan.outputs.stable_versions }}
+      experimental_versions: ${{ steps.plan.outputs.experimental_versions }}
       tools: ${{ steps.plan.outputs.tools }}
     env:
       GH_TOKEN: ${{ github.token }}
@@ -182,16 +183,27 @@ jobs:
                    | jq -R . | jq -sc '{include: map({version: .})}')
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
 
-          # Versions the bundles actually declare as stable. Anything newer is a
-          # canary as far as the patch set is concerned, which is how the release body
-          # labels the channel column.
-          stable=$(for f in patches-morpheapp patches-rushiranpise patches-hoodles; do
-            java -jar toolchain/morphe-desktop.jar list-versions -f "$PACKAGE" \
-              --patches="toolchain/$f.mpp" 2>/dev/null \
-              | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
-          done | sort -u | jq -R . | jq -sc .)
-          echo "declared stable: $stable"
-          echo "stable_versions=$stable" >> "$GITHUB_OUTPUT"
+          # What the bundles declare for this app. Listing without -x yields only the
+          # stable targets, and -x adds the experimental ones, so the difference marks
+          # them. A version in neither list is a canary as far as the patches are
+          # concerned: nothing upstream claims it, it is simply carried by --force.
+          declared() {
+            local flag="$1" f
+            for f in patches-morpheapp patches-rushiranpise patches-hoodles; do
+              java -jar toolchain/morphe-desktop.jar list-versions "$flag" -f "$PACKAGE" \
+                --patches="toolchain/$f.mpp" 2>/dev/null \
+                | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
+            done | sort -u
+          }
+          stable=$(declared '' | jq -R . | jq -sc .)
+          experimental=$(declared '-x' | grep -vxF -f <(declared '' ) || true)
+          experimental=$(printf '%s\n' "$experimental" | sed '/^$/d' | jq -R . | jq -sc .)
+          echo "declared stable:       $stable"
+          echo "declared experimental: $experimental"
+          {
+            echo "stable_versions=$stable"
+            echo "experimental_versions=$experimental"
+          } >> "$GITHUB_OUTPUT"
 
           # The body credits each tool with the exact version it used. Names go in via
           # --arg because an apostrophe inside the jq program breaks the shell quoting.
@@ -393,6 +405,7 @@ jobs:
       RUSH_RECOMMENDED: ${{ needs.discover.outputs.rush_recommended }}
       HOODLES_RECOMMENDED: ${{ needs.discover.outputs.hoodles_recommended }}
       STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
+      EXPERIMENTAL_VERSIONS: ${{ needs.discover.outputs.experimental_versions }}
       TOOLS: ${{ needs.discover.outputs.tools }}
       EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
       RELEASE_TAG: 'proton-vpn'
