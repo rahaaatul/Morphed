@@ -6,7 +6,6 @@ on:
     paths:
       - '.github/workflows/protonvpn.yml'
       - 'src/patches/Proton-VPN-*/**'
-      - 'scripts/protonvpn-probe/**'
       - 'patch_version.json'
   workflow_dispatch:
   schedule:
@@ -26,7 +25,7 @@ env:
   DOOM_OWNER_REPO: rushiranpise/morphe-patches
   HOODLES_OWNER_REPO: hoo-dles/morphe-patches
   # Forced on from MorpheApp's shared set, which declares no Proton VPN bundle of its
-  # own. Everything else is discovered from the bundles at run time.
+  # own. Everything else is read out of the bundles at run time.
   EXTRA_PATCHES: |
     Change installer source
     Disable Play Store updates
@@ -37,7 +36,7 @@ env:
     Disable Play Store updates
   MAX_VERSIONS: '10'
   # The download cell links an icon rather than the file name. Served from the
-  # repository so one copy serves every release; left empty it falls back to the name.
+  # repository so one copy serves every release.
   ICON_URL: https://raw.githubusercontent.com/rahaaatul/Morphed/main/.github/icons/download.png
   ICON_WIDTH: '16'
 
@@ -46,18 +45,18 @@ jobs:
     name: Discover supported versions
     runs-on: ubuntu-24.04
     outputs:
-      matrix: ${{ steps.plan.outputs.matrix }}
-      toolchain_key: ${{ steps.plan.outputs.toolchain_key }}
-      patches: ${{ steps.plan.outputs.patches }}
-      doom_recommended: ${{ steps.plan.outputs.doom_recommended }}
-      hoodles_recommended: ${{ steps.plan.outputs.hoodles_recommended }}
-      stable_versions: ${{ steps.plan.outputs.stable_versions }}
-      experimental_versions: ${{ steps.plan.outputs.experimental_versions }}
-      tools: ${{ steps.plan.outputs.tools }}
-      patches_ver: ${{ steps.plan.outputs.patches_ver }}
-      desktop_ver: ${{ steps.plan.outputs.desktop_ver }}
-    env:
-      GH_TOKEN: ${{ github.token }}
+      matrix: ${{ steps.versions.outputs.matrix }}
+      channels: ${{ steps.versions.outputs.channels }}
+      reused: ${{ steps.versions.outputs.reused }}
+      versions: ${{ steps.versions.outputs.versions }}
+      expected_patches: ${{ steps.versions.outputs.expected_patches }}
+      nothing_to_build: ${{ steps.versions.outputs.nothing_to_build }}
+      patches_ver: ${{ steps.meta.outputs.patches_ver }}
+      desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
+      recommended: ${{ steps.versions.outputs.recommended }}
+      stable_versions: ${{ steps.versions.outputs.stable_versions }}
+      experimental_versions: ${{ steps.versions.outputs.experimental_versions }}
+      tools: ${{ steps.meta.outputs.tools }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -68,69 +67,69 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - name: Assert the JDK is new enough
-        run: |
-          set -euo pipefail
-          # The runner image only ships JDK 17, so setup-java is required. Assert
-          # afterwards rather than trusting the requested version resolved as asked.
-          v=$(java -version 2>&1 | head -1 | sed -nE 's/.*version "([0-9]+).*/\1/p')
-          if [[ -z "$v" ]] || [[ "$v" -lt 21 ]]; then
-            echo "::error::needs JDK 21 or newer, found ${v:-none}"
-            exit 1
-          fi
-
-      - name: Set up Python
-        uses: actions/setup-python@v6.1.0
-        with:
-          python-version: '3.13'
-
-      - name: Resolve, download and cache the toolchain
-        id: plan
+      - name: Fetch Morphe patches and patcher
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           # Newest release carrying a wanted asset, prereleases preferred.
-          newest_tag() {
-            gh api "repos/$1/releases?per_page=30" | jq -r '
-              ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
-              | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
-              | .[0].tag_name'
-          }
           newest_asset() {
-            gh api "repos/$1/releases?per_page=30" | jq -r --arg ext "$2" '
+            local repo=$1 ext=$2
+            gh api "repos/${repo}/releases?per_page=30" | jq -r --arg ext "$ext" '
               ([.[] | select(.draft == false)] | sort_by(.published_at) | reverse) as $all
               | ([$all[] | select(.prerelease == true)] + [$all[] | select(.prerelease == false)])
               | .[].assets[]? | select(.name | endswith($ext)) | .browser_download_url' | head -1
           }
 
-          mpp=$(newest_tag MorpheApp/morphe-patches)
-          doom=$(newest_tag "$DOOM_OWNER_REPO")
-          hoo=$(newest_tag "$HOODLES_OWNER_REPO")
-          jar=$(newest_tag MorpheApp/morphe-desktop)
-          for t in "$mpp" "$doom" "$hoo" "$jar"; do
-            [[ "$t" != "null" && -n "$t" ]] || { echo "::error::could not resolve a release tag"; exit 1; }
+          curl -fsSL -o patches.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
+          curl -fsSL -o patches-doom.mpp "$(newest_asset "$DOOM_OWNER_REPO" .mpp)"
+          curl -fsSL -o patches-hoodles.mpp "$(newest_asset "$HOODLES_OWNER_REPO" .mpp)"
+          curl -fsSL -o morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
+          for f in patches.mpp patches-doom.mpp patches-hoodles.mpp morphe-desktop.jar; do
+            [[ -s "$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
           done
-          echo "patches: $mpp $doom $hoo"
-          echo "patcher: $jar"
-          echo "toolchain_key=protonvpn-toolchain-v2-${mpp}-${doom}-${hoo}-${jar}" \
-            >> "$GITHUB_OUTPUT"
+          ls -la *.mpp morphe-desktop.jar
 
-          mkdir -p toolchain
-          if [[ ! -s toolchain/morphe-desktop.jar ]]; then
-            curl -fsSL -o toolchain/patches-morpheapp.mpp "$(newest_asset MorpheApp/morphe-patches .mpp)"
-            curl -fsSL -o toolchain/patches-doom.mpp "$(newest_asset "$DOOM_OWNER_REPO" .mpp)"
-            curl -fsSL -o toolchain/patches-hoodles.mpp "$(newest_asset "$HOODLES_OWNER_REPO" .mpp)"
-            curl -fsSL -o toolchain/morphe-desktop.jar "$(newest_asset MorpheApp/morphe-desktop .jar)"
-            for f in patches-morpheapp.mpp patches-doom.mpp patches-hoodles.mpp morphe-desktop.jar; do
-              [[ -s "toolchain/$f" ]] || { echo "::error::$f missing or empty"; exit 1; }
-            done
-          fi
-          ls -la toolchain
+          # Recorded without the leading v, which is the form patch_version.json uses.
+          patches_ver=$(gh api repos/MorpheApp/morphe-patches/releases \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          desktop_ver=$(gh api repos/MorpheApp/morphe-desktop/releases \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          {
+            echo "patches_ver=${patches_ver#v}"
+            echo "desktop_ver=${desktop_ver#v}"
+          } >> "$GITHUB_OUTPUT"
+
+          # The body credits each tool with the exact version it used. Names go in via
+          # --arg because an apostrophe inside the jq program breaks the shell quoting.
+          doom_ver=$(gh api "repos/${DOOM_OWNER_REPO}/releases" \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          hoo_ver=$(gh api "repos/${HOODLES_OWNER_REPO}/releases" \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          tools=$(jq -nc \
+            --arg d "$desktop_ver" --arg m "$patches_ver" \
+            --arg doom "$doom_ver" --arg h "$hoo_ver" \
+            --arg label "Doom's Morphe Patches" \
+            '[["Morphe Desktop","https://github.com/MorpheApp/morphe-desktop",$d],
+              ["Morphe Patches","https://github.com/MorpheApp/morphe-patches",$m],
+              [$label,"https://github.com/rushiranpise/morphe-patches/",$doom],
+              ["hoodles Morphe Patches","https://github.com/hoo-dles/morphe-patches",$h]]')
+          echo "tools=$tools" >> "$GITHUB_OUTPUT"
+
+      - name: List supported versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p apkmeta
 
           # Each source states the app version its patches were written against. Read
           # them rather than hardcoding, since they move with every patch release.
           recommended() {
-            java -jar toolchain/morphe-desktop.jar list-versions -f "$PACKAGE" \
-              --patches="toolchain/$1" 2>/dev/null \
+            java -jar morphe-desktop.jar list-versions -f "$PACKAGE" \
+              --patches="$1" 2>/dev/null \
               | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p' | head -1
           }
           doom_rec=$(recommended patches-doom.mpp)
@@ -138,27 +137,28 @@ jobs:
           echo "Doom recommends: ${doom_rec:-unknown}"
           echo "hoo-dles recommends: ${hoo_rec:-unknown}"
           {
-            echo "doom_recommended=$doom_rec"
-            echo "hoodles_recommended=$hoo_rec"
+            jq -nc --arg d "$doom_rec" --arg h "$hoo_rec" \
+                    --arg label "Doom's Morphe Patches" \
+              '{($label): {url: "https://github.com/rushiranpise/morphe-patches/", value: $d},
+                ("hoodles Morphe Patches"): {url: "https://github.com/hoo-dles/morphe-patches", value: $h}}' \
+              > recommended.json
+            echo "recommended=$(cat recommended.json)" >> "$GITHUB_OUTPUT"
           } >> "$GITHUB_OUTPUT"
 
           # Every patch the sources recommend for this app, discovered rather than
           # listed here: whatever each bundle ships enabled for this package, in the
           # order the bundle lists them, grouped by source, then the forced extras.
           enabled_in() {
-            java -jar toolchain/morphe-desktop.jar list-patches -f "$PACKAGE" \
-              --patches="toolchain/$1" 2>/dev/null \
+            java -jar morphe-desktop.jar list-patches -f "$PACKAGE" --patches="$1" 2>/dev/null \
               | awk '/^Name: /{n=substr($0,7)} /^Enabled: /{if($2=="true") print n}'
           }
-          patches=$(
-            {
+          expected=$( {
               enabled_in patches-doom.mpp
               enabled_in patches-hoodles.mpp
               printf '%s\n' "$EXTRA_PATCHES"
-            } | sed '/^$/d' | awk '!seen[$0]++' | jq -R . | jq -sc .
-          )
-          echo "patches: $patches"
-          echo "patches=$patches" >> "$GITHUB_OUTPUT"
+            } | sed '/^$/d' | awk '!seen[$0]++' | jq -R . | jq -sc . )
+          echo "expected patches: $expected"
+          echo "expected_patches=$expected" >> "$GITHUB_OUTPUT"
 
           # What the bundles declare for this app. Listing without -x yields only the
           # stable targets and -x adds the experimental ones, so experimental is the
@@ -171,9 +171,9 @@ jobs:
             # a step failure.
             if [[ -n "${1:-}" ]]; then flag=("$1"); fi
             local f
-            for f in patches-morpheapp patches-doom patches-hoodles; do
-              java -jar toolchain/morphe-desktop.jar list-versions "${flag[@]}" \
-                -f "$PACKAGE" --patches="toolchain/$f.mpp" 2>/dev/null \
+            for f in patches.mpp patches-doom.mpp patches-hoodles.mpp; do
+              java -jar morphe-desktop.jar list-versions "${flag[@]}" \
+                -f "$PACKAGE" --patches="$f" 2>/dev/null \
                 | sed -nE 's/^[[:space:]]*([0-9]+(\.[0-9]+)+).*/\1/p'
             done | sort -u
           }
@@ -189,56 +189,116 @@ jobs:
             echo "experimental_versions=$experimental"
           } >> "$GITHUB_OUTPUT"
 
-          # The body credits each tool with the exact version it used. Names go in via
-          # --arg because an apostrophe inside the jq program breaks the shell quoting.
-          tools=$(jq -nc \
-            --arg d "$jar" --arg m "$mpp" --arg doom "$doom" --arg h "$hoo" \
-            --arg label "Doom's Morphe Patches" \
-            '[["Morphe Desktop","https://github.com/MorpheApp/morphe-desktop",$d],
-              ["Morphe Patches","https://github.com/MorpheApp/morphe-patches",$m],
-              [$label,"https://github.com/rushiranpise/morphe-patches/",$doom],
-              ["hoodles Morphe Patches","https://github.com/hoo-dles/morphe-patches",$h]]')
-          echo "tools=$tools" >> "$GITHUB_OUTPUT"
+          # Proton publishes one universal APK per release, so there is no
+          # architecture to filter on. Versions come straight off the releases feed,
+          # newest first.
+          versions=$(gh api "repos/${UPSTREAM}/releases?per_page=40" \
+                     | jq -r '.[] | select(.draft == false) | .tag_name')
 
-          # Cover every release from the newest down past the older of the two stated
-          # versions, so the walk is guaranteed to contain a version every patch
-          # applies to. Publishing stops at that version.
-          tags=$(gh api "repos/$UPSTREAM/releases?per_page=40" \
-                 | jq -r '.[] | select(.draft == false) | .tag_name')
+          # Walk back far enough to be certain the range contains a version every patch
+          # applies to: past the older of the two versions the sources state.
           deepest=""
           for want in "$doom_rec" "$hoo_rec"; do
             [[ -n "$want" ]] || continue
-            idx=$(printf '%s\n' "$tags" | grep -n "^${want}$" | head -1 | cut -d: -f1)
+            idx=$(printf '%s\n' "$versions" | grep -n "^${want}$" | head -1 | cut -d: -f1)
             [[ -n "$idx" ]] || { echo "::warning::$want is not a published release tag"; continue; }
-            if [[ -z "$deepest" ]] || [[ "$idx" -gt "$deepest" ]]; then
-              deepest="$idx"
-            fi
+            if [[ -z "$deepest" ]] || [[ "$idx" -gt "$deepest" ]]; then deepest="$idx"; fi
           done
           [[ -n "$deepest" ]] || deepest=3
           want_n=$(( deepest + 2 ))
           # Written as an if rather than [[ ... ]] && x=y, because a false test makes
           # the whole && list non-zero and set -e would abort the step.
-          if [[ "$want_n" -gt "$MAX_VERSIONS" ]]; then
-            want_n=$MAX_VERSIONS
+          if [[ "$want_n" -gt "$MAX_VERSIONS" ]]; then want_n=$MAX_VERSIONS; fi
+          versions=$(printf '%s\n' "$versions" | head -"$want_n")
+          echo "covering $(printf '%s\n' "$versions" | grep -c .) release(s)"
+
+          # A version already on the release was built from this same patch set, so it
+          # needs no rebuild. Its APK is fetched back at publish time.
+          done_versions=$(jq -r --arg o MorpheApp --arg r morphe-patches \
+                              --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \
+                              '(.source[$o][$r][$t][$app].versions // [])[]' patch_version.json \
+                              2>/dev/null || true)
+
+          matrix='{"include":['
+          channels='{'
+          reused='['
+          first_matrix=1; first_channel=1; first_reuse=1
+          while read -r v; do
+            [[ -n "$v" ]] || continue
+            # Nothing upstream declares a Proton VPN version stable, so every build is
+            # a canary by the patches' reckoning. Recorded per version so a future
+            # bundle that does declare one is picked up without a code change.
+            [[ $first_channel -eq 1 ]] || channels+=','
+            channels+="\"$v\":\"Canary\""
+            first_channel=0
+            if printf '%s\n' "$done_versions" | grep -qxF "$v"; then
+              [[ $first_reuse -eq 1 ]] || reused+=','
+              reused+="\"$v\""; first_reuse=0
+            else
+              [[ $first_matrix -eq 1 ]] || matrix+=','
+              matrix+="{\"version\":\"$v\",\"channel\":\"Canary\"}"
+              first_matrix=0
+            fi
+          done <<< "$versions"
+
+          # An empty matrix produces zero jobs, which GitHub reports as a failed run
+          # even though every real job passed. Emit a single sentinel entry instead and
+          # let the patch job skip its work, so a no-op run stays green.
+          if [[ $first_matrix -eq 1 ]]; then
+            matrix+='{"noop":true}'
+            nothing_to_build=1
           fi
-          echo "covering the newest $want_n release(s) to reach $doom_rec and $hoo_rec"
-
-          # The patcher version, without the leading v, is what patch_version.json is
-          # keyed on and what the release body credits.
+          matrix+=']}'
+          channels+='}'
+          reused+=']'
           {
-            echo "patches_ver=${mpp#v}"
-            echo "desktop_ver=${jar#v}"
+            echo "matrix=$matrix"
+            echo "channels=$channels"
+            echo "reused=$reused"
+            echo "nothing_to_build=${nothing_to_build:-0}"
           } >> "$GITHUB_OUTPUT"
+          echo "matrix=$matrix"
 
-          matrix=$(printf '%s\n' "$tags" | head -"$want_n" | jq -R . \
-                   | jq -sc '{include: map({version: .})}')
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+      - name: Generate options file
+        if: steps.versions.outputs.nothing_to_build != '1'
+        run: |
+          set -euo pipefail
+          # Three bundles are required. The generic install-source and update patches
+          # live in MorpheApp's, the premium unlock in Doom's and the DNS, LAN,
+          # split-tunneling and delay unlocks in hoo-dles's. No single repo has all of
+          # them, so one bundle alone cannot satisfy the request.
+          java -jar morphe-desktop.jar options-create \
+            -f "$PACKAGE" -o options.json \
+            -p patches.mpp -p patches-doom.mpp -p patches-hoodles.mpp
 
-      - name: Save the toolchain cache
-        uses: actions/cache/save@v6
+          # With more than one bundle loaded the -e flags are ignored and the options
+          # file wins, so the selection has to be made here. Enabled by name across
+          # every bundle so it does not matter which bundle each patch landed in.
+          want=$(printf '%s' "${{ steps.versions.outputs.expected_patches }}" | jq -Rsc '
+            (if startswith("[") then (fromjson? // []) else [splits("\n")] end)
+            | map(select(length > 0))')
+          jq --argjson want "$want" '
+            [.[] | .patches |= with_entries(
+               if (.key as $k | $want | index($k)) then .value.enabled = true else . end)]
+          ' options.json > options.tmp && mv options.tmp options.json
+
+          echo "patch state:"
+          jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | wc -l
+
+      - name: Upload patcher artifacts
+        if: steps.versions.outputs.nothing_to_build != '1'
+        uses: actions/upload-artifact@v7.0.1
         with:
-          path: toolchain
-          key: ${{ steps.plan.outputs.toolchain_key }}
+          name: morphe-toolchain
+          path: |
+            patches.mpp
+            patches-doom.mpp
+            patches-hoodles.mpp
+            morphe-desktop.jar
+            options.json
+            apkmeta
+          retention-days: 1
+          if-no-files-found: error
 
   patch:
     name: Patch ${{ matrix.version }}
@@ -247,9 +307,6 @@ jobs:
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
-    env:
-      GH_TOKEN: ${{ github.token }}
-      EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -260,97 +317,58 @@ jobs:
           distribution: 'zulu'
           java-version: '21'
 
-      - name: Set up Python
-        uses: actions/setup-python@v6.1.0
-        with:
-          python-version: '3.13'
-
-      - name: Restore cached toolchain
+      - name: Restore APK cache
+        if: ${{ !matrix.noop }}
         uses: actions/cache/restore@v6
         with:
-          path: toolchain
-          key: ${{ needs.discover.outputs.toolchain_key }}
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
+          restore-keys: |
+            apk-cache-${{ env.APP_SLUG }}-
 
-      - name: Confirm the toolchain arrived
+      - name: Download patcher artifacts
+        if: ${{ !matrix.noop }}
+        uses: actions/download-artifact@v8.0.1
+        with:
+          name: morphe-toolchain
+          path: .
+
+      - name: Download APK from GitHub releases
+        if: ${{ !matrix.noop }}
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          for f in patches-morpheapp.mpp patches-doom.mpp patches-hoodles.mpp morphe-desktop.jar; do
-            [[ -s "toolchain/$f" ]] || { echo "::error::$f missing from the toolchain cache"; exit 1; }
-          done
-
-      - name: Resolve the download URL and size
-        id: asset
-        run: |
-          set -euo pipefail
-          # Resolved before the cache lookup, because the cache key needs the size.
-          read -r url size < <(gh api "repos/$UPSTREAM/releases/tags/${{ matrix.version }}" \
+          mkdir -p apk-cache
+          if [[ -s "apk-cache/protonvpn-${{ matrix.version }}.apk" ]]; then
+            echo "reusing cached original for ${{ matrix.version }}"
+            exit 0
+          fi
+          read -r url size < <(gh api \
+            "repos/${UPSTREAM}/releases/tags/${{ matrix.version }}" \
             | jq -r '[.assets[] | select(.name | contains("vanilla-direct"))][0]
                      | "\(.browser_download_url) \(.size)"')
           [[ "$url" == "http"* && "$size" =~ ^[0-9]+$ ]] \
             || { echo "::error::could not resolve the direct-release APK"; exit 1; }
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "size=$size" >> "$GITHUB_OUTPUT"
-          echo "${{ matrix.version }} -> $(basename "$url") ($size bytes)"
-
-      - name: Restore cached original
-        id: orig
-        uses: actions/cache/restore@v6
-        with:
-          path: original
-          # Keyed on the version and the size the upstream API reports, so a corrected
-          # or re-uploaded asset never reuses a stale download.
-          key: protonvpn-apk-${{ matrix.version }}-${{ steps.asset.outputs.size }}
-
-      - name: Download the original
-        if: steps.orig.outputs.cache-hit != 'true'
-        run: |
-          set -euo pipefail
-          mkdir -p original
-          curl -fsSL -o original/app.apk '${{ steps.asset.outputs.url }}'
-          got=$(stat -c%s original/app.apk)
+          curl -fsSL -o "apk-cache/protonvpn-${{ matrix.version }}.apk" "$url"
+          got=$(stat -c%s "apk-cache/protonvpn-${{ matrix.version }}.apk")
           # A truncated download makes the patcher emit an empty result, which looks
           # identical to "this version is not supported" and drops it silently.
-          if [[ "$got" != '${{ steps.asset.outputs.size }}' ]]; then
-            echo "::error::truncated download: got $got, expected ${{ steps.asset.outputs.size }}"
+          if [[ "$got" != "$size" ]]; then
+            echo "::error::truncated download: got $got, expected $size"
             exit 1
           fi
+          ls -la apk-cache
 
-      - name: Save the original
-        if: steps.orig.outputs.cache-hit != 'true'
+      - name: Save APK cache
+        if: ${{ !matrix.noop }}
         uses: actions/cache/save@v6
         with:
-          path: original
-          key: protonvpn-apk-${{ matrix.version }}-${{ steps.asset.outputs.size }}
+          path: apk-cache
+          key: apk-cache-${{ env.APP_SLUG }}-${{ github.run_id }}
 
-      - name: Build the options file
-        run: |
-          set -euo pipefail
-          # Three bundles are required. The generic install-source and update patches
-          # live in MorpheApp's, the premium unlock in Doom's and the DNS, LAN,
-          # split-tunneling and delay unlocks in hoo-dles's. No single repo has all of
-          # them, so one bundle alone cannot satisfy the request.
-          java -jar toolchain/morphe-desktop.jar options-create \
-            -f "$PACKAGE" -o options.json \
-            -p toolchain/patches-morpheapp.mpp \
-            -p toolchain/patches-doom.mpp \
-            -p toolchain/patches-hoodles.mpp
-
-          # With more than one bundle loaded the -e flags are ignored and the options
-          # file wins, so the selection has to be made here. Enabled by name across
-          # every bundle so it does not matter which bundle each patch landed in.
-          #
-          # Read as raw text, then decode: a JSON array is parsed, anything else is
-          # split on newlines. Reading it as raw lines instead turned the array into a
-          # single element holding the whole array as text, and enabled nothing.
-          want=$(printf '%s' "$EXPECTED_PATCHES" | jq -Rsc '
-            (if startswith("[") then (fromjson? // []) else [splits("\n")] end)
-            | map(select(length > 0))')
-          jq --argjson want "$want" '
-            [.[] | .patches |= with_entries(
-               if (.key as $k | $want | index($k)) then .value.enabled = true else . end)]
-          ' options.json > options.tmp && mv options.tmp options.json
-
-      - name: Patch
+      - name: Patch APK
+        if: ${{ !matrix.noop }}
         run: |
           set -euo pipefail
           # No --striplibs: Proton publishes a single universal APK carrying every ABI
@@ -364,152 +382,286 @@ jobs:
           # --continue-on-error keeps a partial result usable: a patch that cannot match
           # its fingerprint is recorded as failed rather than aborting the build.
           #
-          # Output is not captured, so the patcher's own Applied/FAILED lines stay in
-          # this leg's log where they can be checked against the published body.
-          java -jar toolchain/morphe-desktop.jar patch \
-            --patches=toolchain/patches-morpheapp.mpp \
-            --patches=toolchain/patches-doom.mpp \
-            --patches=toolchain/patches-hoodles.mpp \
+          # Output is not captured, so the patcher's own Applied and FAILED lines stay
+          # in this leg's log where they can be checked against the published body.
+          java -jar morphe-desktop.jar patch \
+            --patches=patches.mpp \
+            --patches=patches-doom.mpp \
+            --patches=patches-hoodles.mpp \
             --options-file=options.json \
-            --out="out-${{ matrix.version }}.apk" \
+            --out="proton-vpn-v${{ matrix.version }}.apk" \
             -r="result-${{ matrix.version }}.json" \
             --keystore=src/keystore/morphe.keystore \
             --force --continue-on-error \
-            original/app.apk
+            "apk-cache/protonvpn-${{ matrix.version }}.apk"
 
-          # Sidecar for the publish job: what was produced, as opposed to what the
-          # patcher reported. The patcher's own JSON carries neither size nor arch.
-          # Read the ABI list back out of the APK rather than asserting what it should
-          # be, so the recorded architecture cannot drift from the shipped file.
-          abis=$(unzip -l "out-${{ matrix.version }}.apk" \
+          # The arch label is read back out of the APK rather than asserted, so the body
+          # cannot claim an architecture the shipped file does not have.
+          abis=$(unzip -l "proton-vpn-v${{ matrix.version }}.apk" \
                  | grep -oE 'lib/[^/]+/' | sort -u | sed 's:^lib/::; s:/$::' || true)
           n=$(printf '%s\n' "$abis" | grep -c . || true)
           if [[ "$n" -gt 1 ]]; then arch="Universal"; else arch="${abis:-unknown}"; fi
-          jq -nc --arg v "${{ matrix.version }}" \
-                 --arg a "$arch" \
-                 --argjson s "$(stat -c%s "out-${{ matrix.version }}.apk")" \
-                 '{version: $v, arch: $a, size_bytes: $s}' > "meta-${{ matrix.version }}.json"
+          jq -nc --arg v "${{ matrix.version }}" --arg a "$arch" \
+                 --argjson s "$(stat -c%s "proton-vpn-v${{ matrix.version }}.apk")" \
+                 '{version: $v, arch: $a, size_bytes: $s}' \
+            > "meta-${{ matrix.version }}.json"
           cat "meta-${{ matrix.version }}.json"
 
-          echo "reported result:"
-          jq -r '"  applied: \([.appliedPatches[]?.name] | join(", "))",
-                 "  failed:  \([.failedPatches[]?.patch.name] | join(", "))"' \
-            "result-${{ matrix.version }}.json"
+          # The per-version patch lists the release body is built from. The failed name
+          # sits under a nested patch field; the top level is null.
+          jq -r '.appliedPatches[]?.name // empty' "result-${{ matrix.version }}.json" \
+            > "applied-${{ matrix.version }}.txt"
+          jq -r '.failedPatches[]?.patch.name // empty' "result-${{ matrix.version }}.json" \
+            > "failed-${{ matrix.version }}.txt"
+          echo "applied $(grep -c . "applied-${{ matrix.version }}.txt" || true), failed $(grep -c . "failed-${{ matrix.version }}.txt" || true)"
 
-      - name: Upload the result
-        uses: actions/upload-artifact@v7.0.1
-        with:
-          name: result-${{ matrix.version }}
-          path: |
-            result-${{ matrix.version }}.json
-            meta-${{ matrix.version }}.json
-          retention-days: 1
-          if-no-files-found: error
-
-      - name: Upload the APK
+      - name: Upload patched APK
+        if: ${{ !matrix.noop }}
         uses: actions/upload-artifact@v7.0.1
         with:
           name: apk-${{ matrix.version }}
-          path: out-${{ matrix.version }}.apk
+          path: proton-vpn-v${{ matrix.version }}.apk
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload applied patch list
+        if: ${{ !matrix.noop }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: applied-${{ matrix.version }}
+          path: ./applied-${{ matrix.version }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload failed patch list
+        if: ${{ !matrix.noop }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: failed-${{ matrix.version }}
+          path: ./failed-${{ matrix.version }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload patch metadata
+        if: ${{ !matrix.noop }}
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: meta-${{ matrix.version }}
+          path: ./meta-${{ matrix.version }}.json
           retention-days: 1
           if-no-files-found: error
 
   release:
     name: Publish release
     needs: [discover, patch]
-    if: always()
-    runs-on: ubuntu-24.04
     env:
-      GH_TOKEN: ${{ github.token }}
-      DOOM_RECOMMENDED: ${{ needs.discover.outputs.doom_recommended }}
-      HOODLES_RECOMMENDED: ${{ needs.discover.outputs.hoodles_recommended }}
-      STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
-      EXPERIMENTAL_VERSIONS: ${{ needs.discover.outputs.experimental_versions }}
-      TOOLS: ${{ needs.discover.outputs.tools }}
-      EXPECTED_PATCHES: ${{ needs.discover.outputs.patches }}
       PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
-      DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
-      STATE_FILE: patch_version.json
+    # Nothing was patched, so the release already holds the right APKs and body.
+    # Running would re-download every APK just to write an identical body back.
+    if: always() && needs.discover.outputs.nothing_to_build != '1'
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Set up Python
-        uses: actions/setup-python@v6.1.0
-        with:
-          python-version: '3.13'
-
-      - name: Collect every result
+      - name: Download patched APKs
         uses: actions/download-artifact@v8.0.1
         with:
-          pattern: result-*
-          path: results
-          merge-multiple: true
-
-      - name: Decide what to ship
-        id: ship
-        run: |
-          set -euo pipefail
-          # Ship from the newest release down to the newest version every patch applied
-          # to. Anything older is a worse build than one already on the release, and
-          # anything newer than the anchor at least carries the generic patches. A
-          # version with nothing but the generic patches applied is dropped outright,
-          # since a re-signed APK with the store relabelled and the updater disabled is
-          # not worth a download.
-          export PACKAGE EXPECTED_PATCHES GENERIC_PATCHES
-          python3 "$GITHUB_WORKSPACE/scripts/protonvpn-probe/ship.py" results \
-            --output shipped.json
-          cat shipped.json
-          mapfile -t versions < <(jq -r '.ship[]' shipped.json)
-          if [[ ${#versions[@]} -eq 0 ]]; then
-            echo "::error::nothing to ship"
-            exit 1
-          fi
-          echo "shipping ${#versions[@]} version(s): ${versions[*]}"
-          # The trailing .* matters. upload-artifact stores each artifact as
-          # "<name>.zip", so a literal "apk-<version>" pattern matches nothing and the
-          # download silently returns zero files. Anchoring on the dot also keeps
-          # 5.20.5 from matching 5.20.57.0.
-          {
-            echo 'pattern<<EOF'
-            for v in "${versions[@]}"; do echo "apk-$v.*"; done
-            echo EOF
-          } >> "$GITHUB_OUTPUT"
-
-      - name: Download the APKs
-        uses: actions/download-artifact@v8.0.1
-        with:
-          pattern: ${{ steps.ship.outputs.pattern }}
+          pattern: apk-*
           path: release
           merge-multiple: true
 
-      - name: Render the release body
-        run: |
-          set -euo pipefail
-          export PACKAGE REPO_FULL RELEASE_TAG ICON_URL ICON_WIDTH
-          export DOOM_RECOMMENDED HOODLES_RECOMMENDED
-          export STABLE_VERSIONS EXPERIMENTAL_VERSIONS TOOLS EXPECTED_PATCHES GENERIC_PATCHES
-          python3 "$GITHUB_WORKSPACE/scripts/protonvpn-probe/table.py" results \
-            --ship shipped.json > release-notes.md
-          cp release-notes.md probe-body.md
-          cat release-notes.md
+      - name: Download applied patch lists
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: applied-*
+          path: applied
+          merge-multiple: true
 
-      - name: Verify every expected APK is present
+      - name: Download failed patch lists
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: failed-*
+          path: failed
+          merge-multiple: true
+
+      - name: Download patch metadata
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: meta-*
+          path: meta
+          merge-multiple: true
+
+      - name: Verify and generate release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REUSED: ${{ needs.discover.outputs.reused }}
+          EXPECTED_PATCHES: ${{ needs.discover.outputs.expected_patches }}
+          GENERIC_PATCHES: ${{ env.GENERIC_PATCHES }}
+          RECOMMENDED: ${{ needs.discover.outputs.recommended }}
+          STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
+          EXPERIMENTAL_VERSIONS: ${{ needs.discover.outputs.experimental_versions }}
+          TOOLS: ${{ needs.discover.outputs.tools }}
+          PATCHES_VER: ${{ needs.discover.outputs.patches_ver }}
+          DESKTOP_VER: ${{ needs.discover.outputs.desktop_ver }}
+          STATE_FILE: patch_version.json
         run: |
           set -euo pipefail
-          # apkmirror-downloader and the patcher have both exited 0 without producing
-          # a file, so existence is checked rather than trusted.
-          missing=0
-          while read -r v; do
-            [[ -n "$v" ]] || continue
-            found=$(find release -maxdepth 1 -name "*${v}*.apk" | head -1)
-            if [[ -z "$found" ]]; then
-              echo "::error::no APK produced for $v"
-              missing=1
+          mkdir -p ship
+
+          # sort -Vr so the newest version leads the table, ordering version components
+          # numerically rather than lexically. An empty glob yields an empty array, so
+          # the guard below still fires.
+          mapfile -t apks < <(find release -maxdepth 1 -name '*.apk' | sort -Vr)
+
+          # Versions this run did not rebuild are already on the release. The publish
+          # step clears existing assets, so fetch them again or they would vanish.
+          reused=$(jq -r '.[]' <<< "$REUSED" | grep -c . || true)
+          if [[ "$reused" -gt 0 ]]; then
+            echo "Reusing $reused already-published APK(s)"
+            while read -r v; do
+              [[ -n "$v" ]] || continue
+              name="proton-vpn-v${v}.apk"
+              if gh release download "$RELEASE_TAG" --repo "$REPO_FULL" \
+                   --pattern "$name" --dir release --clobber 2>/dev/null; then
+                echo "  reused $name"
+              else
+                echo "::warning::Could not reuse $name, it will be dropped from the release"
+              fi
+            done < <(jq -r '.[]' <<< "$REUSED")
+            mapfile -t apks < <(find release -maxdepth 1 -name '*.apk' | sort -Vr)
+          fi
+
+          if [[ ${#apks[@]} -eq 0 ]]; then
+            echo "::error::No APKs were produced by any patch job"
+            exit 1
+          fi
+
+          # One record per shipped version, from the per-leg lists and metadata.
+          for apk in "${apks[@]}"; do
+            base=$(basename "$apk")
+            v="${base#proton-vpn-v}"; v="${v%.apk}"
+            [[ "$v" != "$base" ]] || continue
+            size=$(( $(stat -c%s "$apk") / 1048576 ))
+            arch=$(jq -r '.arch // "unknown"' "meta/meta-$v.json" 2>/dev/null || echo unknown)
+            applied=$(tr '\n' ',' < "applied/applied-$v.txt" 2>/dev/null | sed 's/,$//' || true)
+            failed=$(tr '\n' ',' < "failed/failed-$v.txt" 2>/dev/null | sed 's/,$//' || true)
+            jq -nc --arg v "$v" --argjson s "$size" --arg a "$arch" \
+                   --arg ap "$applied" --arg fa "$failed" \
+                   '{version: $v, size: $s, arch: $a,
+                     applied: ($ap | split(",") | map(select(length > 0))),
+                     failed:  ($fa | split(",") | map(select(length > 0)))}' >> ship/all.jsonl
+          done
+          cat ship/all.jsonl
+
+          # A version carrying nothing but the shared install-source and update patches
+          # is a re-signed APK with the store relabelled and the updater disabled, which
+          # is not worth a download. Ship from the newest release down to the newest
+          # version every patch applied to; anything older is superseded.
+          generic=$(printf '%s\n' "$GENERIC_PATCHES" | sed '/^$/d' | jq -R . | jq -sc .)
+          expected=$(printf '%s' "$EXPECTED_PATCHES" | jq -Rsc \
+            '(if startswith("[") then (fromjson? // []) else [splits("\n")] end) | map(select(length > 0))')
+
+          # Flag each version, then take from the newest until the first complete one.
+          # all.jsonl is already newest first, so the first complete record is the
+          # anchor and everything after it is superseded.
+          jq -s '.' ship/all.jsonl | jq --argjson e "$expected" --argjson g "$generic" '
+            map(. as $r | {
+              version: $r.version, size: $r.size, arch: $r.arch,
+              applied: $r.applied, failed: $r.failed,
+              bust: (($r.applied | length) > 0
+                     and ([$r.applied[] | select(. as $p | $g | index($p))] | length)
+                         == ($r.applied | length)),
+              complete: (([$e[] as $p | select($r.applied | index($p))] | length) == ($e | length))
+            })' > ship/flags.json
+
+          anchor=$(jq -r '[.[] | select(.complete and (.bust | not))][0].version // ""' ship/flags.json)
+          echo "anchor: ${anchor:-none}"
+
+          jq 'reduce .[] as $r ({out: [], done: false};
+                if .done then .
+                elif $r.bust then .
+                else .out += [$r] | if $r.complete then .done = true else . end
+                end) | .out' ship/flags.json > ship/keep.json
+
+          mapfile -t keep < <(jq -r '.[].version' ship/keep.json)
+          echo "shipping ${#keep[@]} version(s): ${keep[*]}"
+          if [[ ${#keep[@]} -eq 0 ]]; then
+            echo "::error::every candidate was worth nothing"
+            exit 1
+          fi
+
+          # The Patches table: every expected patch against the versions that support
+          # it. `All` where it held everywhere, an except list where it did not, and the
+          # full version list once the exceptions outgrow the compact form.
+          versions=$(jq -r '[.[].version] | @tsv' -r ship/keep.json | tr '\t' ' ')
+          {
+            echo "| Patch | Applied on |"
+            echo "| --- | --- |"
+            while IFS= read -r p; do
+              on=$(jq -r --arg p "$p" --arg vs "$versions" '
+                    ($vs | split(" ")) as $all
+                  | [ .[] | select(.applied | index($p)) | .version ] as $has
+                  | if ($has | length) == ($all | length) then "`All`"
+                    elif ($all | length) - ($has | length) <= 3 then
+                      "`All` except " + ([ $all[] | select(. as $x | ($has | index($x)) == null) | "`\(.)`" ] | join(", "))
+                    else ($has | map("`\(.)`") | join("<br>")) end' ship/keep.json)
+              echo "| $p | $on |"
+            done < <(printf '%s' "$expected" | jq -r '.[]')
+          } > ship/patches.md
+
+          channel_of() {
+            local v=$1
+            if jq -e --arg v "$v" 'index($v)' <<< "$STABLE_VERSIONS" >/dev/null; then echo Stable
+            elif jq -e --arg v "$v" 'index($v)' <<< "$EXPERIMENTAL_VERSIONS" >/dev/null; then echo Beta
+            else echo Canary; fi
+          }
+
+          {
+            echo "> [!TIP]"
+            if [[ -n "$anchor" ]]; then
+              echo "> Install \`$anchor\`. It is the newest version where every patch applied cleanly."
+            else
+              echo "> [!WARNING]"
+              echo "> No shipped version had every patch applied."
             fi
-          done < <(jq -r '.ship[]' shipped.json)
-          [[ "$missing" -eq 0 ]] || exit 1
-          ls -la release
+            echo
+            echo "> [!NOTE]"
+            # Each line needs the blockquote marker or it escapes the callout and
+            # renders as a top level bullet.
+            jq -r 'to_entries[] | "> - **[\(.key)](\(.value.url))** recommends `\(.value.value)`."' \
+              <<< "$RECOMMENDED"
+            echo
+            echo "## Patches"
+            echo
+            cat ship/patches.md
+            echo
+            echo "## Downloads"
+            echo
+            echo "| Version | Channel | Arch | Size | Download |"
+            echo "| :-------: | :-------: | :---------: | :-----: | :------------------------: |"
+            jq -r '.[] | . as $r
+              | (if (index($r.version) | not) then empty else empty end)' ship/keep.json >/dev/null
+            while read -r v; do
+              row=$(jq -c --arg v "$v" '.[] | select(.version == $v)' ship/keep.json)
+              size=$(jq -r '.size' <<< "$row")
+              arch=$(jq -r '.arch' <<< "$row")
+              name="proton-vpn-v${v}.apk"
+              url="https://github.com/${REPO_FULL}/releases/download/${RELEASE_TAG}/${name}"
+              echo "| \`$v\` | $(channel_of "$v") | $arch | ${size}.0MB | <a href=\"$url\"><img src=\"$ICON_URL\" width=\"$ICON_WIDTH\" alt=\"Download $v\"></a> |"
+            done <<< "$(jq -r '.[].version' ship/keep.json)"
+            echo
+            echo "## Tools used"
+            echo
+            echo "| Tool | Version |"
+            echo "| --- | --- |"
+            printf '%s\n' "$TOOLS" | jq -r '.[] | . as $t
+              | "| [\($t[0])](\($t[1])) | [`\($t[2])`](\($t[1] | rtrimstr("/"))/releases/tag/\($t[2])) |"' 
+          } > release-notes.md
+
+          cat release-notes.md
+          jq -r '[.[].version] | @csv' ship/keep.json | tr -d '"' | tr ',' '\n' | sed '/^$/d' | jq -Rsc 'split("\n") | map(select(length > 0))' > ship/versions.json
+          cat ship/versions.json
 
       - name: Publish
         uses: ncipollo/release-action@v1.21.0
@@ -531,26 +683,23 @@ jobs:
             git fetch origin main
             git checkout -B main origin/main
 
-            applied=$(jq -r '[.[] | select(.version) | .applied[]?] | unique | .[]' \
-                        results/*.json 2>/dev/null | sort -u || true)
-            failed=$(jq -r '[.[] | select(.version) | .failed[]?] | unique | .[]' \
-                        results/*.json 2>/dev/null | sort -u || true)
-            versions=$(jq -r '.ship[]' shipped.json)
+            applied=$(jq -s -r '[.[].applied[]] | unique | .[]' ship/keep.json)
+            failed=$(jq -s -r '[.[].failed[]] | unique | .[]' ship/keep.json)
+            versions=$(jq -r '.[].version' ship/keep.json)
 
             applied_json=$(printf '%s\n' "$applied" | jq -Rsc 'split("\n") | map(select(length > 0))')
             failed_json=$(printf '%s\n' "$failed" | jq -Rsc 'split("\n") | map(select(length > 0))')
             versions_json=$(printf '%s\n' "$versions" | jq -Rsc 'split("\n") | map(select(length > 0))')
-            bundles="$PATCHES_VER"
 
-            # The file is committed but a missing one is treated as empty, so a fresh
-            # clone cannot fail the release after it published.
+            # The file is committed, but treat a missing one as empty so a fresh clone
+            # or a manual delete cannot fail the release after it published.
             [[ -f "$STATE_FILE" ]] || echo '{}' > "$STATE_FILE"
             jq --arg org ProtonVPN --arg repo android-app --arg pkg "$PACKAGE" \
                --arg desktop "$DESKTOP_VER" --arg app "$APP_SLUG" \
                --argjson applied "$applied_json" \
                --argjson failed "$failed_json" \
                --argjson versions "$versions_json" \
-               '.source[$org][$repo][$bundles][$app] = {
+               '.source[$org][$repo][$PATCHES_VER][$app] = {
                   org: $org, repo: $repo, package: $pkg,
                   desktop: $desktop,
                   patches_applied: $applied,
@@ -564,7 +713,7 @@ jobs:
               exit 0
             fi
             if git add "$STATE_FILE" \
-               && git commit -S -m "Record $APP_TITLE build from $bundles" \
+               && git commit -S -m "Record $APP_TITLE build from $PATCHES_VER" \
                && git push; then
               exit 0
             fi
