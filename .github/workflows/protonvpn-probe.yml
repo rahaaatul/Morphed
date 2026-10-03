@@ -44,13 +44,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6.0.2
 
-      - name: Ensure a JDK 21
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Assert the JDK is new enough
         run: |
           set -euo pipefail
-          # The runner image already ships JDK 21. Pulling one with setup-java costs
-          # roughly 190MB per run for no benefit, and there is no way to cache the
-          # distribution out of that action, so use what is on the box and fail loudly
-          # if the image ever stops providing a new enough one.
+          # The runner image only ships JDK 17, so setup-java is required rather than
+          # optional. The action caches gradle and maven repositories but not the JDK
+          # distribution itself, so the download it does cannot be cached away. Assert
+          # afterwards instead of trusting the requested version resolved as asked.
           v=$(java -version 2>&1 | head -1 | sed -nE 's/.*version "([0-9]+).*/\1/p')
           if [[ -z "$v" ]] || [[ "$v" -lt 21 ]]; then
             echo "::error::needs JDK 21 or newer, found ${v:-none}"
