@@ -291,7 +291,8 @@ jobs:
           # Patch names for the release body. Every leg uses the same patch bundle
           # and options, so these are expected to match across versions.
           jq -r '.appliedPatches[].name' result.json > "applied-${{ matrix.version }}.txt"
-          jq -r '.failedPatches[].name' result.json > "failed-${{ matrix.version }}.txt"
+          # failedPatches nests the name under .patch, unlike appliedPatches.
+          jq -r '.failedPatches[].patch.name' result.json > "failed-${{ matrix.version }}.txt"
           echo "applied patches: $(wc -l < "applied-${{ matrix.version }}.txt")"
           echo "failed patches: $(wc -l < "failed-${{ matrix.version }}.txt")"
           cat "failed-${{ matrix.version }}.txt"
