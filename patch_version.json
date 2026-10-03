@@ -155,13 +155,6 @@
             "repo": "youtube-music",
             "package": "com.google.android.apps.youtube.music",
             "desktop": "1.18.0-dev.6",
-            "versions": [
-              "9.15.51",
-              "9.20.53",
-              "9.37.54",
-              "9.38.51",
-              "9.39.52"
-            ],
             "patches_applied": [
               "Android Auto",
               "App refresh rate",
@@ -212,6 +205,13 @@
               "Spoof video streams",
               "Theme",
               "Third-party lyrics"
+            ],
+            "versions": [
+              "9.39.52",
+              "9.38.51",
+              "9.37.54",
+              "9.20.53",
+              "9.15.51"
             ]
           }
         }
