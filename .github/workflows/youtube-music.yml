@@ -150,7 +150,8 @@ jobs:
           matrix='{"include":['
           channels='{'
           reused='['
-          first=1
+          first_matrix=1
+          first_channel=1
           first_reuse=1
           while read -r v; do
             [[ -n "$v" ]] || continue
@@ -161,8 +162,12 @@ jobs:
               channel=Beta
             fi
 
-            [[ $first -eq 1 ]] || { matrix+=','; channels+=','; }
+            # Each list tracks its own first element. Sharing one flag leaves a
+            # leading comma behind when the first version is skipped, which is not
+            # valid JSON.
+            [[ $first_channel -eq 1 ]] || channels+=','
             channels+="\"$v\":\"$channel\""
+            first_channel=0
 
             if printf '%s\n' "$done_versions" | grep -qxF "$v"; then
               echo "Skipping $v, already published from v${patches_ver}"
@@ -170,9 +175,10 @@ jobs:
               reused+="\"$v\""
               first_reuse=0
             else
+              [[ $first_matrix -eq 1 ]] || matrix+=','
               matrix+="{\"version\":\"$v\",\"channel\":\"$channel\"}"
+              first_matrix=0
             fi
-            first=0
           done <<< "$versions"
           matrix+=']}'
           channels+='}'
