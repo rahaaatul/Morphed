@@ -21,3 +21,6 @@
 *.log
 *-CHANGELOG.txt
 .DS_Store
+# Python bytecode from the probe scripts
+__pycache__/
+*.pyc
