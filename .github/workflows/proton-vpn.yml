@@ -1,0 +1,364 @@
+name: Proton VPN
+
+on:
+  workflow_dispatch:
+  schedule:
+    # Every 12 hours from 00:00 UTC. Proton is rebuilt from its own upstream
+    # state on this cadence plus manual dispatch; repository pushes no longer
+    # gate it.
+    - cron: '0 */12 * * *'
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  REPO_FULL: rahaaatul/Morphed
+  APP_SLUG: protonvpn
+  APP_TITLE: 'Proton VPN'
+  RELEASE_TAG: proton-vpn
+  PACKAGE: ch.protonvpn.android
+  UPSTREAM: ProtonVPN/android-app
+  DOOM_OWNER_REPO: rushiranpise/morphe-patches
+  HOODLES_OWNER_REPO: hoo-dles/morphe-patches
+  # Forced on from MorpheApp's shared set, which declares no Proton VPN bundle of its
+  # own. Everything else is read out of the bundles at run time.
+  EXTRA_PATCHES: |
+    Change installer source
+    Disable Play Store updates
+  # Proton publishes one universal APK per release, so there is no architecture to
+  # measure. Reading it back out of the APK only ever produced "Universal" or, when
+  # the probe came back empty, a misleading "unknown".
+  ARCH: Universal
+  # One icon shared by every release.
+  ICON_URL: https://raw.githubusercontent.com/rahaaatul/Morphed/main/.github/icons/download.png
+  ICON_WIDTH: '20'
+  STATE_FILE: .github/tags/proton-vpn.json
+
+jobs:
+  discover:
+    name: Discover supported versions
+    runs-on: ubuntu-24.04
+    outputs:
+      matrix: ${{ steps.versions.outputs.matrix }}
+      versions: ${{ steps.versions.outputs.versions }}
+      patcher: ${{ steps.versions.outputs.patcher }}
+      sources: ${{ steps.versions.outputs.sources }}
+      skip: ${{ steps.versions.outputs.skip }}
+      expected_patches: ${{ steps.versions.outputs.expected_patches }}
+      patches_ver: ${{ steps.meta.outputs.patches_ver }}
+      desktop_ver: ${{ steps.meta.outputs.desktop_ver }}
+      recommended: ${{ steps.versions.outputs.recommended }}
+      stable_versions: ${{ steps.versions.outputs.stable_versions }}
+      experimental_versions: ${{ steps.versions.outputs.experimental_versions }}
+      tools: ${{ steps.meta.outputs.tools }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Fetch Morphe patches and patcher
+        id: meta
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          bash scripts/protonvpn/fetch-toolchain.sh
+          # Newest tags (prereleases preferred), recorded bare (no leading "v"),
+          # which is the form proton-vpn.json uses.
+          patches_ver=$(gh api repos/MorpheApp/morphe-patches/releases \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          desktop_ver=$(gh api repos/MorpheApp/morphe-desktop/releases \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          doom_ver=$(gh api "repos/${DOOM_OWNER_REPO}/releases" \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          hoo_ver=$(gh api "repos/${HOODLES_OWNER_REPO}/releases" \
+            --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
+          {
+            echo "patches_ver=${patches_ver#v}"
+            echo "desktop_ver=${desktop_ver#v}"
+            echo "doom_ver=${doom_ver#v}"
+            echo "hoo_ver=${hoo_ver#v}"
+          } >> "$GITHUB_OUTPUT"
+          # The body credits each tool with the exact version it used. Names go in via
+          # --arg because an apostrophe inside the jq program breaks the shell quoting.
+          tools=$(jq -nc \
+            --arg d "$desktop_ver" --arg m "$patches_ver" \
+            --arg doom "$doom_ver" --arg h "$hoo_ver" \
+            --arg label "Doom's Morphe Patches" \
+            '[["Morphe Desktop","https://github.com/MorpheApp/morphe-desktop",$d],
+              ["Morphe Patches","https://github.com/MorpheApp/morphe-patches",$m],
+              [$label,"https://github.com/rushiranpise/morphe-patches/",$doom],
+              ["hoodles Morphe Patches","https://github.com/hoo-dles/morphe-patches",$h]]')
+          echo "tools=$tools" >> "$GITHUB_OUTPUT"
+
+      - name: Cache Morphe toolchain (permanent, input-only)
+        # Bundles + patcher jar are reused verbatim until their versions change.
+        # Patched APKs are never cached.
+        uses: actions/cache/save@v6
+        with:
+          path: |
+            morphe-patches.mpp
+            doom-patches.mpp
+            hoodles-patches.mpp
+            morphe-desktop.jar
+          key: protonvpn-toolchain-${{ env.APP_SLUG }}-${{ steps.meta.outputs.patches_ver }}-${{ steps.meta.outputs.desktop_ver }}-${{ steps.meta.outputs.doom_ver }}-${{ steps.meta.outputs.hoo_ver }}
+
+      - name: List supported versions
+        id: versions
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATCHES_VER: ${{ steps.meta.outputs.patches_ver }}
+          DESKTOP_VER: ${{ steps.meta.outputs.desktop_ver }}
+          DOOM_VER: ${{ steps.meta.outputs.doom_ver }}
+          HOODLES_VER: ${{ steps.meta.outputs.hoo_ver }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/proton-vpn.py discover --state-file "$STATE_FILE"
+
+  patch:
+    name: Patch ${{ matrix.version }}
+    needs: discover
+    if: needs.discover.outputs.skip != '1'
+    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
+    env:
+      EXPECTED_PATCHES: ${{ needs.discover.outputs.expected_patches }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Set up JDK
+        uses: actions/setup-java@v5.2.0
+        with:
+          distribution: 'zulu'
+          java-version: '21'
+
+      - name: Restore Morphe toolchain
+        uses: actions/cache/restore@v6
+        with:
+          path: |
+            morphe-patches.mpp
+            doom-patches.mpp
+            hoodles-patches.mpp
+            morphe-desktop.jar
+          key: protonvpn-toolchain-${{ env.APP_SLUG }}-${{ needs.discover.outputs.patches_ver }}-${{ needs.discover.outputs.desktop_ver }}-${{ needs.discover.outputs.doom_ver }}-${{ needs.discover.outputs.hoo_ver }}
+
+      - name: Fetch toolchain on cache miss
+        # Same-run caches saved in `discover` are not guaranteed visible here, so
+        # fall back to fetching when the jar is absent.
+        if: ${{ !hashFiles('morphe-desktop.jar') }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash scripts/protonvpn/fetch-toolchain.sh
+
+      - name: Restore source APK (permanent, per version)
+        uses: actions/cache/restore@v6
+        with:
+          path: apk-cache
+          key: protonvpn-apk-${{ env.APP_SLUG }}-${{ matrix.version }}
+
+      - name: Download APK from GitHub releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p apk-cache
+          if [[ -s "apk-cache/protonvpn-${{ matrix.version }}.apk" ]]; then
+            echo "reusing cached original for ${{ matrix.version }}"
+            exit 0
+          fi
+          read -r url size < <(gh api \
+            "repos/${UPSTREAM}/releases/tags/${{ matrix.version }}" \
+            | jq -r '[.assets[] | select(.name | contains("vanilla-direct"))][0]
+                     | "\(.browser_download_url) \(.size)"')
+          [[ "$url" == "http"* && "$size" =~ ^[0-9]+$ ]] \
+            || { echo "::error::could not resolve the direct-release APK"; exit 1; }
+          curl -fsSL -o "apk-cache/protonvpn-${{ matrix.version }}.apk" "$url"
+          got=$(stat -c%s "apk-cache/protonvpn-${{ matrix.version }}.apk")
+          # A truncated download makes the patcher emit an empty result, which looks
+          # identical to "this version is not supported" and drops it silently.
+          if [[ "$got" != "$size" ]]; then
+            echo "::error::truncated download: got $got, expected $size"
+            exit 1
+          fi
+          ls -la apk-cache
+
+      - name: Save source APK cache
+        uses: actions/cache/save@v6
+        with:
+          path: apk-cache
+          key: protonvpn-apk-${{ env.APP_SLUG }}-${{ matrix.version }}
+
+      - name: Build options file
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/proton-vpn.py select-options \
+            --package "$PACKAGE" \
+            --expected "$EXPECTED_PATCHES" \
+            --options options.json \
+            --jar morphe-desktop.jar \
+            -p morphe-patches.mpp \
+            -p doom-patches.mpp \
+            -p hoodles-patches.mpp
+
+      - name: Patch APK
+        run: |
+          set -euo pipefail
+          # No --striplibs: Proton publishes a single universal APK carrying every ABI
+          # it supports, so there is no per-architecture variant to pick and stripping
+          # would needlessly break other devices.
+          #
+          # --force skips the APK version compatibility check, so a patch is attempted
+          # on a release the bundle does not declare. Without it a patch that would
+          # work is filtered out silently instead of being applied.
+          #
+          # --continue-on-error keeps a partial result usable: a patch that cannot match
+          # its fingerprint is recorded as failed rather than aborting the build.
+          #
+          # Output is not captured, so the patcher's own Applied and FAILED lines stay
+          # in this leg's log where they can be checked against the published body.
+          java -jar morphe-desktop.jar patch \
+            --patches=morphe-patches.mpp \
+            --patches=doom-patches.mpp \
+            --patches=hoodles-patches.mpp \
+            --options-file=options.json \
+            --out="proton-vpn-v${{ matrix.version }}.apk" \
+            -r="result-${{ matrix.version }}.json" \
+            --keystore=src/keystore/morphe.keystore \
+            --force --continue-on-error \
+            "apk-cache/protonvpn-${{ matrix.version }}.apk"
+
+          # The per-version patch lists the release body is built from. The failed name
+          # sits under a nested patch field; the top level is null. Both lists are
+          # written unconditionally so a version that applied nothing still reports an
+          # empty file rather than going missing from the publish step.
+          python3 .github/scripts/proton-vpn.py write-patch-lists \
+            --result "result-${{ matrix.version }}.json" \
+            --applied-out "applied-${{ matrix.version }}.txt" \
+            --failed-out "failed-${{ matrix.version }}.txt"
+
+      - name: Upload patched APK
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: apk-${{ matrix.version }}
+          path: proton-vpn-v${{ matrix.version }}.apk
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload applied patch list
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: applied-${{ matrix.version }}
+          path: ./applied-${{ matrix.version }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+      - name: Upload failed patch list
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: failed-${{ matrix.version }}
+          path: ./failed-${{ matrix.version }}.txt
+          retention-days: 1
+          if-no-files-found: error
+
+  release:
+    name: Publish release
+    needs: [discover, patch]
+    # Skips on a no-op discover pass (skip=1) and on any patch failure.
+    if: always() && needs.discover.outputs.skip != '1' && needs.patch.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+
+      - name: Download patched APKs
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: apk-*
+          path: release
+          merge-multiple: true
+
+      - name: Download applied patch lists
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: applied-*
+          path: applied
+          merge-multiple: true
+
+      - name: Download failed patch lists
+        uses: actions/download-artifact@v8.0.1
+        with:
+          pattern: failed-*
+          path: failed
+          merge-multiple: true
+
+      - name: Verify and generate release body
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PATCHES: ${{ needs.discover.outputs.expected_patches }}
+          RECOMMENDED: ${{ needs.discover.outputs.recommended }}
+          STABLE_VERSIONS: ${{ needs.discover.outputs.stable_versions }}
+          EXPERIMENTAL_VERSIONS: ${{ needs.discover.outputs.experimental_versions }}
+          TOOLS: ${{ needs.discover.outputs.tools }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/proton-vpn.py render-notes \
+            --release-dir release \
+            --applied-dir applied \
+            --failed-dir failed \
+            --output release-notes.md \
+            --keep-out ship/keep.json \
+            --versions-out ship/versions.json
+
+      - name: Publish
+        uses: ncipollo/release-action@v1.21.0
+        with:
+          tag: ${{ env.RELEASE_TAG }}
+          name: ${{ env.APP_TITLE }}
+          bodyFile: release-notes.md
+          artifacts: |
+            release/*.apk
+          allowUpdates: true
+          removeArtifacts: true
+          prerelease: false
+          makeLatest: false
+
+      - name: Record patch state
+        # Step-scoped env does not carry over, so the values the state record needs
+        # are declared here rather than inherited from the step above.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PATCHER: ${{ needs.discover.outputs.patcher }}
+          SOURCES: ${{ needs.discover.outputs.sources }}
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/proton-vpn.py record-state \
+            --keep-in ship/keep.json \
+            --state-file "$STATE_FILE"
+
+      - name: Clean up run artifacts
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -uo pipefail
+          # The APKs now live on the release, so the run artifacts are redundant and can
+          # be several hundred megabytes. Retention is only a backstop.
+          ids=$(gh api "repos/${REPO_FULL}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
+                --paginate --jq '.artifacts[].id')
+          if [[ -z "$ids" ]]; then
+            echo "No artifacts to remove"
+            exit 0
+          fi
+          for id in $ids; do
+            gh api -X DELETE "repos/${REPO_FULL}/actions/artifacts/${id}" >/dev/null \
+              || echo "::warning::Could not delete artifact ${id}"
+          done

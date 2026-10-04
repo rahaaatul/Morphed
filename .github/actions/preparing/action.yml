@@ -1,0 +1,84 @@
+name: Preparing to patch
+inputs:
+  install_bouncy_castle:
+    description: 'Install Bouncy Castle provider for BKS keystore'
+    required: false
+    default: 'false'
+  install_usque:
+    description: 'Install usque for Cloudflare WARP proxy'
+    required: false
+    default: 'false'
+  install_python_deps:
+    description: 'Install Python dependencies for Google Play downloader'
+    required: false
+    default: 'false'
+  python_requirements:
+    description: 'Path to Python requirements.txt file'
+    required: false
+    default: ''
+runs:
+  using: "composite"
+  steps:
+    - name: Set up jdk
+      uses: actions/setup-java@v5.2.0
+      with:
+        distribution: 'zulu'
+        java-version: '21'
+    - name: Setup usque
+      if: inputs.install_usque == 'true'
+      shell: bash
+      run: |
+        wget -q -O usque.zip https://github.com/Diniboy1123/usque/releases/download/v4.2.0/usque_4.2.0_linux_amd64.zip
+        unzip -o usque.zip -d usque
+        chmod +x usque/usque
+        sudo mv usque/usque /usr/local/bin/usque
+        rm -rf usque usque.zip
+        usque register --accept-tos
+        usque socks -b 127.0.0.1 -p 9099 &
+        sleep 5
+        curl -x socks5://127.0.0.1:9099 -s -o /dev/null -w "%{http_code}" https://www.google.com && echo "[+] usque SOCKS5 proxy is ready" || echo "[-] usque proxy failed"
+    - name: Start FlareSolverr
+      shell: bash
+      run: |
+        docker run -d --name flaresolverr -p 8191:8191 ghcr.io/flaresolverr/flaresolverr:latest
+        echo "[*] Waiting for FlareSolverr to start..."
+        for i in $(seq 1 30); do
+          if curl -s http://localhost:8191/ > /dev/null 2>&1; then
+            echo "[+] FlareSolverr is ready."
+            break
+          fi
+          sleep 2
+        done
+    - name: Start CloudflareBypassForScraping
+      shell: bash
+      run: |
+        docker run -d --name cloudflarebypass -p 8000:8000 ghcr.io/sarperavci/cloudflarebypassforscraping:latest
+        echo "[*] Waiting for CloudflareBypassForScraping to start..."
+        for i in $(seq 1 30); do
+          if curl -s http://localhost:8000/ > /dev/null 2>&1; then
+            echo "[+] CloudflareBypassForScraping is ready."
+            break
+          fi
+          sleep 2
+        done
+    - name: Set up Python
+      if: inputs.install_python_deps == 'true'
+      uses: actions/setup-python@v6
+      with:
+        python-version: '3.x'
+    - name: Install Python dependencies
+      if: inputs.install_python_deps == 'true'
+      shell: bash
+      run: pip install -r ${{ inputs.python_requirements }}
+    - name: Install Bouncy Castle provider for BKS keystore
+      if: inputs.install_bouncy_castle == 'true'
+      shell: bash
+      run: |
+        sudo apt-get install -y -q libbcprov-java
+        BCPROV=$(find /usr/share/java -name "bcprov-*.jar" | grep -v debian | head -1)
+        sudo cp "$BCPROV" "$JAVA_HOME/lib/bcprov.jar"
+        LAST_PROV=$(grep "^security.provider\." "$JAVA_HOME/conf/security/java.security" \
+          | grep -oP '(?<=security\.provider\.)\d+' | sort -n | tail -1)
+        echo "security.provider.$((LAST_PROV+1))=org.bouncycastle.jce.provider.BouncyCastleProvider" \
+          | sudo tee -a "$JAVA_HOME/conf/security/java.security"
+        echo "[+] Bouncy Castle registered as provider #$((LAST_PROV+1))"

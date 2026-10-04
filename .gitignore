@@ -1,0 +1,26 @@
+# Runtime output
+/release/
+/download/
+/morphe-data/
+/.groovy/
+
+# Toolchain downloaded at runtime by src/build/utils.sh
+/pup
+/pup.zip
+/APKEditor.jar
+
+# Node / Bun dependencies for the experimental APKMirror workflow
+/node_modules/
+/bun.lock
+/package.json
+/package-lock.json
+/yarn.lock
+/pnpm-lock.yaml
+
+# Local scratch
+*.log
+*-CHANGELOG.txt
+.DS_Store
+# Python bytecode from the probe scripts
+__pycache__/
+*.pyc

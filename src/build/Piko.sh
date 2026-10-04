@@ -1,0 +1,31 @@
+#!/bin/bash
+# Twitter Piko
+source src/build/utils.sh
+
+piko_dl(){
+	dl_gh "morphe-desktop" "MorpheApp" "latest"
+	dl_gh "piko" "crimera" "latest"
+}
+
+1() {
+	# Patch Twitter Piko:
+	piko_dl
+	get_patches_key "twitter-piko"
+    get_apk "com.twitter.android" "twitter-stable" "bundle"
+	patch "twitter-stable" "piko"
+}
+2() {
+	piko_dl
+	# Patch Instagram
+	get_patches_key "instagram-piko"
+ 	get_apk "com.instagram.android" "instagram-arm64-v8a" "bundle" "arm64-v8a" "120-640dpi"  "Android 9.0+"
+	patch "instagram-arm64-v8a" "piko"
+}
+case "$1" in
+    1)
+        1
+        ;;
+    2)
+        2
+        ;;
+esac

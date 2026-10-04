@@ -1,0 +1,12 @@
+[
+  {
+    "patches": {
+      "Custom branding name for YouTube": {
+        "enabled": true,
+        "options": {
+          "appName": "RVX Anddea"
+        }
+      }
+    }
+  }
+]

@@ -1,0 +1,229 @@
+name: 2. Check new patch
+permissions: write-all
+on:
+  schedule:
+    - cron: "0 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  check:
+    name: Check new patch
+    runs-on: ubuntu-latest
+    env:
+      repository: ${{ github.repository }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Check github connection
+        id: check-gh
+        run: bash src/etc/connection.sh
+      - name: Check new patch Morphe
+        id: check-morphe
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh MorpheApp/morphe-patches latest youtube-morphe.apk
+      - name: Check new patch Morphe Beta
+        id: check-morphe-beta
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh MorpheApp/morphe-patches prerelease youtube-beta-morphe.apk
+      - name: Check new patch Revanced Extended forked by Anddea Stable Version
+        id: check-rve-anddea-stable
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh anddea/revanced-patches latest youtube-stable-anddea.apk
+      - name: Check new patch Revanced Extended forked by Anddea Beta Version
+        id: check-rve-anddea-beta
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh anddea/revanced-patches prerelease youtube-beta-anddea.apk
+      - name: Check new patch Twitter Piko Stable
+        id: check-twitter-piko-stable
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh crimera/piko latest twitter-stable-piko.apk
+#      - name: Check new patch Twitter Piko Beta
+#        id: check-twitter-piko-beta
+#        if: steps.check-gh.outputs.internet_error == '0'
+#        run: bash src/etc/ci.sh crimera/piko prerelease twitter-beta-piko.apk
+      - name: Check new patch Piko NewX
+        id: check-twitter-piko-newx
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh crimera/piko-newx latest twitter-piko-newx.apk
+      - name: Check new patch DeReVanced
+        id: check-derv
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh RookieEnough/De-ReVanced latest gg-photos-arm64-v8a-derevanced.apk
+      - name: Check new patch hoo-dles
+        id: check-hoo-dles
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh hoo-dles/morphe-patches latest protonvpn-hoo-dles.apk
+      - name: Check new patch bufferk
+        id: check-bufferk
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh bufferk/morphe-patches latest brave-browser-arm64-v8a-bufferk.apk
+      - name: Check new patch arandomhooman
+        id: check-arandomhooman
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh arandomhooman/hoomans-morphe-patches latest twitch-arandomhooman.apk
+      - name: Check new patch rushiranpise
+        id: check-rushiranpise
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh rushiranpise/morphe-patches latest adguard-rushiranpise.apk
+      - name: Check new patch icysymmetra
+        id: check-icysymmetra
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh icysymmetra/tiktok-patches-for-morphe latest tiktok-icysymmetra.apk
+      - name: Check new patch docbt
+        id: check-docbt
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh docbt/patched-up latest googlenews-docbt.apk
+      - name: Check new patch BiliRoamingM
+        id: check-BiliRoamingM
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh sakarie9/BiliRoamingM latest bilibili-BiliRoamingM.apk
+      - name: Check new patch Revanced Experiments
+        id: check-Revanced-Experiments
+        if: steps.check-gh.outputs.internet_error == '0'
+        run: bash src/etc/ci.sh Aunali321/ReVancedExperiments latest telegram-revanced-experiments.apk
+    outputs:
+      check_morphe: ${{ steps.check-morphe.outputs.new_patch }}
+      check_morphe_beta: ${{ steps.check-morphe-beta.outputs.new_patch }}
+      check_rve_anddea_stable: ${{ steps.check-rve-anddea-stable.outputs.new_patch }}
+      check_rve_anddea_beta: ${{ steps.check-rve-anddea-beta.outputs.new_patch }}
+      check_twitter_piko_stable: ${{ steps.check-twitter-piko-stable.outputs.new_patch }}
+#      check_twitter_piko_beta: ${{ steps.check-twitter-piko-beta.outputs.new_patch }}
+      check_twitter_piko_newx: ${{ steps.check-twitter-piko-newx.outputs.new_patch }}
+      check_derv: ${{ steps.check-derv.outputs.new_patch }}
+      check_hoo_dles: ${{ steps.check-hoo-dles.outputs.new_patch }}
+      check_bufferk: ${{ steps.check-bufferk.outputs.new_patch }}
+      check_arandomhooman: ${{ steps.check-arandomhooman.outputs.new_patch }}
+      check_rushiranpise: ${{ steps.check-rushiranpise.outputs.new_patch }}
+      check_icysymmetra: ${{ steps.check-icysymmetra.outputs.new_patch }}
+      check_docbt: ${{ steps.check-docbt.outputs.new_patch }}
+      check_BiliRoamingM: ${{ steps.check-BiliRoamingM.outputs.new_patch }}
+      check_Revanced_Experiments: ${{ steps.check-Revanced-Experiments.outputs.new_patch }}
+
+  Patch-Morphe:
+    name: Patch Morphe
+    needs: check
+    if: ${{ needs.check.outputs.check_morphe == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Morphe"
+  Patch-Morphe-Beta:
+    name: Patch Morphe Beta
+    needs: check
+    if: ${{ needs.check.outputs.check_morphe_beta == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Morphe Beta"
+  Patch-RVE-anddea-stable:
+    name: Patch RVX Anddea Stable
+    needs: check
+    if: ${{ needs.check.outputs.check_rve_anddea_stable == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "RVE-anddea-stable"
+  Patch-RVE-anddea-beta:
+    name: Patch RVX Anddea Beta
+    needs: check
+    if: ${{ needs.check.outputs.check_rve_anddea_beta == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "RVE-anddea-beta"
+  Patch-Twitter-Piko-Stable:
+    name: Patch Twitter Piko Stable
+    needs: check
+    if: ${{ needs.check.outputs.check_twitter_piko_stable == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Twitter Piko Stable"
+  Patch-Twitter-Piko-Beta:
+    name: Patch Twitter Piko Beta
+    needs: check
+    if: ${{ needs.check.outputs.check_twitter_piko_beta == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Twitter Piko Beta"
+  Patch-Twitter-Piko-NewX:
+    name: Patch Twitter Piko NewX
+    needs: check
+    if: ${{ needs.check.outputs.check_twitter_piko_newx == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Piko NewX"
+  Patch-DeRevanced:
+    name: Patch DeRevanced Stable
+    needs: check
+    if: ${{ needs.check.outputs.check_derv == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "DeRevanced"
+  Patch-hoo-dles:
+    name: Patch hoo-dles
+    needs: check
+    if: ${{ needs.check.outputs.check_hoo_dles == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "hoo-dles"
+  Patch-bufferk:
+    name: Patch bufferk
+    needs: check
+    if: ${{ needs.check.outputs.check_bufferk == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "bufferk"
+  Patch-arandomhooman:
+    name: Patch arandomhooman
+    needs: check
+    if: ${{ needs.check.outputs.check_arandomhooman == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "arandomhooman"
+  Patch-rushiranpise:
+    name: Patch rushiranpise
+    needs: check
+    if: ${{ needs.check.outputs.check_rushiranpise == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "rushiranpise"
+  Patch-icysymmetra:
+    name: Patch icysymmetra
+    needs: check
+    if: ${{ needs.check.outputs.check_icysymmetra == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "icysymmetra"
+  Patch-docbt:
+    name: Patch docbt
+    needs: check
+    if: ${{ needs.check.outputs.check_docbt == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "docbt"
+  Patch-BiliRoamingM:
+    name: Patch BiliRoamingM
+    needs: check
+    if: ${{ needs.check.outputs.check_BiliRoamingM == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "BiliRoamingM"
+  Patch-Revanced-Experiments:
+    name: Patch Revanced Experiments
+    needs: check
+    if: ${{ needs.check.outputs.check_Revanced_Experiments == 1 }}
+    uses: ./.github/workflows/manual-patch.yml
+    secrets: inherit
+    with:
+      org: "Revanced Experiments"

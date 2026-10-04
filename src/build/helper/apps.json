@@ -1,0 +1,189 @@
+{
+	"apkmirror": {
+		"ch.protonmail.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=protonmail-encrypted-email",
+			"example_url": "https://www.apkmirror.com/apk/proton-technologies-ag/protonmail-encrypted-email/proton-mail-encrypted-email-7-9-4-release/"
+		},
+		"ch.protonvpn.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=protonvpn-secure-and-free-vpn",
+			"example_url": "https://www.apkmirror.com/apk/proton-technologies-ag/protonvpn-secure-and-free-vpn/proton-vpn-fast-secure-vpn-5-18-18-0-release/"
+		},
+		"cn.wps.moffice_eng": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=wps-office-pdf",
+			"example_url": "https://www.apkmirror.com/apk/wps-software-pte-ltd/wps-office-pdf/wps-office-pdf-word-sheet-18-25-2-release/"
+		},
+		"com.adguard.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=adguard",
+			"example_url": "https://www.apkmirror.com/apk/adguard-software-limited/adguard/adguard-for-android-4-12-81-release/"
+		},
+		"com.amazon.avod.thirdpartyclient": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=amazon-prime-video",
+			"example_url": "https://www.apkmirror.com/apk/amazon-mobile-llc/amazon-prime-video/amazon-prime-video-3-0-447-release/"
+		},
+		"com.brave.browser": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=brave-browser",
+			"example_url": "https://www.apkmirror.com/apk/brave-software/brave-browser/brave-private-web-browser-vpn-1-92-140-release/"
+		},
+		"com.bilibili.app.in": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=bilibili",
+			"example_url": "https://www.apkmirror.com/apk/bilibili/bilibili/bilibili-3-20-2-release/"
+		},
+		"com.discord": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=discord-chat-for-gamers",
+			"example_url": "https://www.apkmirror.com/apk/discord/discord-chat-for-gamers/discord-talk-play-hang-out-327-12-stable-release/"
+		},
+		"com.dubox.drive": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=terabox-cloud-storage-cloud-backup-data-backup",
+			"example_url": "https://www.apkmirror.com/apk/flextech-inc/terabox-cloud-storage-cloud-backup-data-backup/terabox-1tb-cloud-ai-space-4-19-6-release/"
+		},
+		"com.duolingo": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=duolingo-duolingo",
+			"example_url": "https://www.apkmirror.com/apk/duolingo/duolingo-duolingo/duolingo-language-lessons-6-77-5-release/"
+		},
+		"com.eyecon.global": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=eyecon-caller-id-spam-block",
+			"example_url": "https://www.apkmirror.com/apk/eyecon-phone-dialer-contacts/eyecon-caller-id-spam-block/eyecon-caller-id-spam-block-4-2026-04-23-1145-release/"
+		},
+		"com.facebook.katana": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=facebook",
+			"example_url": "https://www.apkmirror.com/apk/facebook-2/facebook/facebook-490-0-0-63-82-release/"
+		},
+		"com.facebook.orca": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=messenger",
+			"example_url": "https://www.apkmirror.com/apk/facebook-2/messenger/facebook-messenger-560-0-0-55-69-release/"
+		},
+		"com.google.android.apps.magazines": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=google-news",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/google-news/google-news-daily-headlines-5-158-0-908428942-release/"
+		},
+		"com.google.android.apps.photos": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=photos",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/photos/google-photos-7-74-0-910345644-release/"
+		},
+		"com.google.android.apps.recordero": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=google-recorder",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/google-recorder/google-recorder-4-2-20260409-906192856-release/"
+		},
+		"com.google.android.apps.youtube.music": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=youtube-music",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/youtube-music/youtube-music-9-17-51-release/"
+		},
+		"com.google.android.youtube": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=youtube",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/youtube/youtube-21-18-168-release/"
+		},
+		"com.instagram.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=instagram-instagram",
+			"example_url": "https://www.apkmirror.com/apk/instagram/instagram-instagram/instagram-428-0-0-47-67-release/"
+		},
+		"com.instagram.barcelona": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=threads-an-instagram-app",
+			"example_url": "https://www.apkmirror.com/apk/instagram/threads-an-instagram-app/threads-428-0-0-46-66-release/"
+		},
+		"com.intsig.camscanner": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=camscanner-phone-pdf-creator",
+			"example_url": "https://www.apkmirror.com/apk/intsig-pte/camscanner-phone-pdf-creator/camscanner-scanner-pdf-maker-7-20-0-2606230000-release/"
+		},
+		"com.microblink.photomath": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=photomath",
+			"example_url": "https://www.apkmirror.com/apk/google-inc/photomath/photomath-8-47-1-release/"
+		},
+		"com.medium.reader": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=medium",
+			"example_url": "https://www.apkmirror.com/apk/a-medium-corporation/medium/medium-4-5-1223215-release/"
+		},
+		"com.paget96.batteryguru": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=battery-guru-health-saver",
+			"example_url": "https://www.apkmirror.com/apk/paget96/battery-guru-health-saver/battery-guru-battery-health-2-4-8-1-release/"
+		},
+		"com.psiphon3.subscription": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=psiphon-pro-the-internet-freedom-vpn",
+			"example_url": "https://www.apkmirror.com/apk/psiphon-inc/psiphon-pro-the-internet-freedom-vpn/psiphon-vpn-freedom-online-479-release/"
+		},
+		"com.rarlab.rar": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=rar",
+			"example_url": "https://www.apkmirror.com/apk/rarlab-published-by-win-rar-gmbh/rar/rar-7-20-build131-release/"
+		},
+		"com.reddit.frontpage": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=reddit",
+			"example_url": "https://www.apkmirror.com/apk/redditinc/reddit/reddit-2026-18-0-release/"
+		},
+		"com.soundcloud.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=soundcloud-soundcloud",
+			"example_url": "https://www.apkmirror.com/apk/soundcloud/soundcloud-soundcloud/soundcloud-play-music-songs-2026-04-30-release-release/"
+		},
+		"com.teslacoilsw.launcher": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=nova-launcher",
+			"example_url": "https://www.apkmirror.com/apk/instabridge-sweden-ab/nova-launcher/nova-launcher-87300-8-7-3-release/"
+		},
+		"com.truecaller": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=truecaller-caller-id-block",
+			"example_url": "https://www.apkmirror.com/apk/true-software-scandinavia-ab/truecaller-caller-id-block/truecaller-trusted-caller-id-26-17-6-release/"
+		},
+		"com.tumblr": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=tumblr",
+			"example_url": "https://www.apkmirror.com/apk/tumblr-inc/tumblr/tumblr-social-media-art-blog-44-4-0-108-release/"
+		},
+		"com.twitter.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=twitter",
+			"example_url": "https://www.apkmirror.com/apk/x-corp/twitter/x-12-19-1-release-0-release/",
+			"example_url2": "https://www.apkmirror.com/apk/x-corp/twitter/x-12-24-0-prod-02-release/"
+		},
+		"com.viber.voip": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=viber",
+			"example_url": "https://www.apkmirror.com/apk/viber-media-s-a-r-l/viber/rakuten-viber-messenger-27-8-1-0-release/"
+		},
+		"com.ss.android.ugc.trill": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=tik-tok",
+			"example_url": "https://www.apkmirror.com/apk/tiktok-pte-ltd/tik-tok/tiktok-43-8-3-2-release/"
+		},
+		"com.waze": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=waze-gps-maps-traffic-alerts-live-navigation",
+			"example_url": "https://www.apkmirror.com/apk/waze/waze-gps-maps-traffic-alerts-live-navigation/waze-navigation-live-traffic-5-21-0-0-release/"
+		},
+		"com.windscribe.vpn": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=windscribe-vpn",
+			"example_url": "https://www.apkmirror.com/apk/windscribe/windscribe-vpn/windscribe-fast-secure-vpn-4-1-2274-release/"
+		},
+		"com.zhiliaoapp.musically": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=tik-tok-including-musical-ly",
+			"example_url": "https://www.apkmirror.com/apk/tiktok-pte-ltd/tik-tok-including-musical-ly/tiktok-46-9-1-release/"
+		},
+		"com.zing.zalo": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=zalo",
+			"example_url": "https://www.apkmirror.com/apk/zalo-group/zalo/zalo-26-07-01-release/"
+		},
+		"ginlemon.flowerfree": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=smart-launcher",
+			"example_url": "https://www.apkmirror.com/apk/smart-launcher-team/smart-launcher/smart-launcher-6-%e2%80%a7-home-screen-6-6-build-010-release/"
+		},
+		"jp.pxv.android": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=pixiv",
+			"example_url": "https://www.apkmirror.com/apk/pixiv-inc/pixiv/pixiv-6-180-1-release/"
+		},
+		"nextapp.fx": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=fx-file-explorer",
+			"example_url": "https://www.apkmirror.com/apk/nextapp-inc/fx-file-explorer/fx-file-explorer-9-1-0-0-release/"
+		},
+		"org.telegram.messenger": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=telegram-web-version",
+			"example_url": "https://www.apkmirror.com/apk/telegram-fz-llc/telegram-web-version/telegram-web-version-12-7-2-release/"
+		},
+		"pl.solidexplorer2": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=solid-explorer-file-manager",
+			"example_url": "https://www.apkmirror.com/apk/neatbytes/solid-explorer-file-manager/solid-explorer-file-manager-3-4-10-release/"
+		},
+		"tv.twitch.android.app": {
+			"list_url": "https://www.apkmirror.com/uploads/?appcategory=twitch",
+			"example_url": "https://www.apkmirror.com/apk/twitch-interactive-inc/twitch/twitch-live-streaming-29-3-1-release/"
+		}
+	},
+	"apkpure": {
+		"com.strava": {
+			"download_url": "https://apkpure.com/strava-run-hike-android-exercise-laugh/com.strava/downloading/"
+		},
+		"com.zing.zalo": {
+			"download_url": "https://apkpure.com/zalo/com.zing.zalo/downloading/"
+		}
+	}
+}

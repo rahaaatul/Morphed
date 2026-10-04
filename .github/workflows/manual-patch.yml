@@ -1,0 +1,446 @@
+name: 1. Manual Patch
+permissions: write-all
+env:
+  repository: ${{ github.repository }}
+  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+  org_input: ${{ inputs.org }}
+  org_event_input: ${{ github.event.inputs.org }}
+on:
+  workflow_dispatch:
+    inputs:
+      org:
+        description: 'Which "Morphe" patches do you want to patch?'
+        required: true
+        default: 'Morphe'
+        type: choice
+        options:
+          - 'Morphe'
+          - 'Morphe Beta'
+          - 'RVE-anddea-stable'
+          - 'RVE-anddea-beta'
+          - 'Twitter Piko Stable'
+          - 'Twitter Piko Beta'
+          - 'Piko NewX'
+          - 'DeRevanced'
+          - 'hoo-dles'
+          - 'bufferk'
+          - 'arandomhooman'
+          - 'icysymmetra'
+          - 'docbt'
+          - 'rushiranpise'
+          - 'BiliRoamingM'
+          - 'Scrazzz Patches'
+          - 'Dropped Patches - indrastorms'
+  workflow_call:
+    inputs:
+      org:
+        required: true
+        type: string
+    secrets:
+      TDL_BACKUP:
+        required: true
+jobs:
+  patch_morphe:
+    name: Patch Morphe
+    if: ${{ github.event.inputs.org == 'Morphe' || inputs.org == 'Morphe' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-morphe
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-morphe
+        if: steps.check-gh-morphe.outputs.internet_error == '0'
+        run: bash src/build/morphe.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-morphe
+        if: steps.check-gh-morphe.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_morphe_beta:
+    name: Patch Morphe Beta
+    if: ${{ github.event.inputs.org == 'Morphe Beta' || inputs.org == 'Morphe Beta' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-morphe-beta
+        run: bash src/etc/connection.sh
+      - name: Check experimental support versions
+        id: experimental-check
+        if: steps.check-gh-morphe-beta.outputs.internet_error == '0'
+        uses: ./.github/actions/experimental-check
+      - name: Patch apk
+        id: patch-morphe-beta
+        if: steps.check-gh-morphe-beta.outputs.internet_error == '0'
+        env:
+          youtube_experimental_support: ${{ steps.experimental-check.outputs.youtube_experimental_support }}
+          youtube_music_experimental_support: ${{ steps.experimental-check.outputs.youtube_music_experimental_support }}
+          reddit_experimental_support: ${{ steps.experimental-check.outputs.reddit_experimental_support }}
+        run: bash src/build/morphe-beta.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-morphe-beta
+        if: steps.check-gh-morphe-beta.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_derv:
+    name: Patch DeRevanced Stable
+    if: ${{ github.event.inputs.org == 'DeRevanced' || inputs.org == 'DeRevanced' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+#        with:
+#          install_python_deps: 'true'
+#          install_usque: 'true'
+#          python_requirements: 'src/build/helper/ggplay_dl/requirements.txt'
+      - name: Check github connection
+        id: check-gh-derv
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-derv
+        if: steps.check-gh-derv.outputs.internet_error == '0'
+        run: bash src/build/DeRevanced.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-derv
+        if: steps.check-gh-derv.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_rve_anddea_stable:
+    name: Patch RVX Anddea stable version
+    if: ${{ github.event.inputs.org == 'RVE-anddea-stable' || inputs.org == 'RVE-anddea-stable' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-rve-anddea-stable
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-rve-anddea-stable
+        if: steps.check-gh-rve-anddea-stable.outputs.internet_error == '0'
+        run: bash src/build/Anddea-Revanced-Extended.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-rve-anddea-stable
+        if: steps.check-gh-rve-anddea-stable.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_rve_anddea_beta:
+    name: Patch RVX Anddea Beta version
+    if: ${{ github.event.inputs.org == 'RVE-anddea-beta' || inputs.org == 'RVE-anddea-beta' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-rve-anddea-beta
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-rve-anddea-beta
+        if: steps.check-gh-rve-anddea-beta.outputs.internet_error == '0'
+        run: bash src/build/Anddea-Revanced-Extended-Beta.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-rve-anddea-beta
+        if: steps.check-gh-rve-anddea-beta.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_twitter_piko_stable:
+    name: Patch Twitter Piko Stable
+    if: ${{ github.event.inputs.org == 'Twitter Piko Stable' || inputs.org == 'Twitter Piko Stable' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-piko-stable
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-piko-stable
+        if: steps.check-gh-piko-stable.outputs.internet_error == '0'
+        env:
+          TDL_BACKUP: ${{ secrets.TDL_BACKUP }}
+        run: bash src/build/Piko.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-piko-stable
+        if: steps.check-gh-piko-stable.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_twitter_piko_beta:
+    name: Patch Twitter Piko Beta
+    if: ${{ github.event.inputs.org == 'Twitter Piko Beta' || inputs.org == 'Twitter Piko Beta' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-piko-beta
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-piko-beta
+        if: steps.check-gh-piko-beta.outputs.internet_error == '0'
+        env:
+          TDL_BACKUP: ${{ secrets.TDL_BACKUP }}
+        run: bash src/build/Piko-Beta.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-piko-beta
+        if: steps.check-gh-piko-beta.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_twitter_piko_newx:
+    name: Patch Twitter Piko NewX
+    if: ${{ github.event.inputs.org == 'Piko NewX' || inputs.org == 'Piko NewX' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-piko-newx
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-piko-newx
+        if: steps.check-gh-piko-newx.outputs.internet_error == '0'
+        run: bash src/build/Piko-Newx.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-piko-newx
+        if: steps.check-gh-piko-newx.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_hoo_dles:
+    name: Patch hoo-dles
+    if: ${{ github.event.inputs.org == 'hoo-dles' || inputs.org == 'hoo-dles' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4, 5]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-hoo-dles
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-hoo-dles
+        if: steps.check-gh-hoo-dles.outputs.internet_error == '0'
+        run: bash src/build/hoo-dles.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-hoo-dles
+        if: steps.check-gh-hoo-dles.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_bufferk:
+    name: Patch bufferk
+    if: ${{ github.event.inputs.org == 'bufferk' || inputs.org == 'bufferk' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-bufferk
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-bufferk
+        if: steps.check-gh-bufferk.outputs.internet_error == '0'
+        run: bash src/build/bufferk.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-bufferk
+        if: steps.check-gh-bufferk.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_arandomhooman:
+    name: Patch arandomhooman
+    if: ${{ github.event.inputs.org == 'arandomhooman' || inputs.org == 'arandomhooman' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-arandomhooman
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-arandomhooman
+        if: steps.check-gh-arandomhooman.outputs.internet_error == '0'
+        run: bash src/build/arandomhooman.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-arandomhooman
+        if: steps.check-gh-arandomhooman.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_icysymmetra:
+    name: Patch icysymmetra
+    if: ${{ github.event.inputs.org == 'icysymmetra' || inputs.org == 'icysymmetra' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-icysymmetra
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-icysymmetra
+        if: steps.check-gh-icysymmetra.outputs.internet_error == '0'
+        run: bash src/build/icysymmetra.sh
+      - name: Releasing APK files
+        id: release-icysymmetra
+        if: steps.check-gh-icysymmetra.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_docbt:
+    name: Patch docbt
+    if: ${{ github.event.inputs.org == 'docbt' || inputs.org == 'docbt' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-docbt
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-docbt
+        if: steps.check-gh-docbt.outputs.internet_error == '0'
+        run: bash src/build/docbt.sh
+      - name: Releasing APK files
+        id: release-docbt
+        if: steps.check-gh-docbt.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_BiliRoamingM:
+    name: Patch BiliRoamingM
+    if: ${{ github.event.inputs.org == 'BiliRoamingM' || inputs.org == 'BiliRoamingM' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-BiliRoamingM
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-BiliRoamingM
+        if: steps.check-gh-BiliRoamingM.outputs.internet_error == '0'
+        run: bash src/build/BiliRoamingM.sh
+      - name: Releasing APK files
+        id: release-BiliRoamingM
+        if: steps.check-gh-BiliRoamingM.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_scrazzz_Patches:
+    name: Scrazzz Patches Revanced
+    if: ${{ github.event.inputs.org == 'Scrazzz Patches' || inputs.org == 'Scrazzz Patches' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-scrazzz-patches
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-scrazzz-patches
+        if: steps.check-gh-scrazzz-patches.outputs.internet_error == '0'
+        run: bash src/build/scrazzz-revanced.sh
+      - name: Releasing APK files
+        id: release-scrazzz-patches
+        if: steps.check-gh-scrazzz-patches.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_rushiranpise:
+    name: Patch Rushiranpise
+    if: ${{ github.event.inputs.org == 'rushiranpise' || inputs.org == 'rushiranpise' }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        run: [1, 2, 3, 4]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+        with:
+          install_python_deps: 'true'
+          install_usque: 'true'
+          python_requirements: 'src/build/helper/ggplay_dl/requirements.txt'
+      - name: Check github connection
+        id: check-gh-rushiranpise
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-rushiranpise
+        if: steps.check-gh-rushiranpise.outputs.internet_error == '0'
+        run: bash src/build/rushiranpise.sh ${{ matrix.run }}
+      - name: Releasing APK files
+        id: release-rushiranpise
+        if: steps.check-gh-rushiranpise.outputs.internet_error == '0'
+        uses: ./.github/actions/release
+  patch_Dropped_Patches:
+    name: Dropped Patches Revanced - indrastorms
+    if: ${{ github.event.inputs.org == 'Dropped Patches - indrastorms' || inputs.org == 'Dropped Patches - indrastorms' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6.0.2
+      - name: Preparing to patch
+        uses: ./.github/actions/preparing
+      - name: Check github connection
+        id: check-gh-Dropped-Patches-indrastorms
+        run: bash src/etc/connection.sh
+      - name: Patch apk
+        id: patch-Dropped-Patches-indrastorms
+        if: steps.check-gh-Dropped-Patches-indrastorms.outputs.internet_error == '0'
+        run: bash src/build/Dropped-Patches-Revanced.sh
+      - name: Releasing APK files
+        id: release-Dropped-Patches-indrastorms
+        if: steps.check-gh-Dropped-Patches-indrastorms.outputs.internet_error == '0'
+        uses: ./.github/actions/release
