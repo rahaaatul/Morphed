@@ -121,6 +121,8 @@ jobs:
         id: versions
         env:
           GH_TOKEN: ${{ github.token }}
+          STATE_FILE: patch_version.json
+          patches_ver: ${{ steps.meta.outputs.patches_ver }}
         run: |
           set -euo pipefail
           mkdir -p apkmeta
@@ -215,8 +217,8 @@ jobs:
           # A version already on the release was built from this same patch set, so it
           # needs no rebuild. Its APK is fetched back at publish time.
           done_versions=$(jq -r --arg o MorpheApp --arg r morphe-patches \
-                              --arg t "$PATCHES_VER" --arg app "$APP_SLUG" \
-                              '(.source[$o][$r][$t][$app].versions // [])[]' patch_version.json \
+                              --arg t "$patches_ver" --arg app "$APP_SLUG" \
+                              '(.source[$o][$r][$t][$app].versions // [])[]' "$STATE_FILE" \
                               2>/dev/null || true)
 
           matrix='{"include":['
@@ -724,6 +726,8 @@ jobs:
 
       - name: Clean up run artifacts
         if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -uo pipefail
           # The APKs now live on the release, so the run artifacts are redundant and can
