@@ -12,10 +12,10 @@
     "5.19.72.0",
     "5.19.61.0"
   ],
-  "patcher": "1.18.1-dev.4",
+  "patcher": "1.18.1-dev.5",
   "sources": {
     "MorpheApp": {
-      "version": "1.46.0-dev.2",
+      "version": "1.46.0-dev.3",
       "list": [
         "Change installer source",
         "Disable Play Store updates"
@@ -72,7 +72,7 @@
       }
     },
     "hoo-dles": {
-      "version": "1.47.0-dev.3",
+      "version": "1.47.0",
       "list": [
         "Unlock custom DNS",
         "Remove delay",
