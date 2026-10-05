@@ -1,0 +1,5 @@
+INFO: Package name: com.google.android.youtube
+Most common compatible versions:
+	21.39.522 (156 patches)
+
+	21.40.156 (98 patches)
