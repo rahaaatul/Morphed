@@ -15,16 +15,15 @@ import sys
 
 def _gh(args: list[str], token: str | None = None) -> subprocess.CompletedProcess:
     env = dict(os.environ, GH_TOKEN=token or os.environ.get("GH_TOKEN", ""))
-    return subprocess.run(
-        ["gh", *args], capture_output=True, text=True, env=env
-    )
+    return subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
 
 
 def newest_tag(repo: str, token: str | None = None) -> str:
     """Return the newest non-draft release tag for repo, prereleases preferred."""
     r = _gh(
         [
-            "api", f"repos/{repo}/releases",
+            "api",
+            f"repos/{repo}/releases",
             "--jq",
             "[.[] | select(.draft == false)] "
             "| sort_by(.published_at) | reverse | .[0].tag_name",
@@ -51,73 +50,94 @@ def download_asset(
     """
     r = _gh(
         [
-            "release", "download", tag,
-            "--repo", repo,
-            "--pattern", pattern,
-            "--dir", dest,
+            "release",
+            "download",
+            tag,
+            "--repo",
+            repo,
+            "--pattern",
+            pattern,
+            "--dir",
+            dest,
+            "--clobber",
         ],
         token,
     )
     if r.returncode != 0:
-        raise RuntimeError(
-            f"download failed for {repo}@{tag}/{pattern}: {r.stderr}"
-        )
+        raise RuntimeError(f"download failed for {repo}@{tag}/{pattern}: {r.stderr}")
     return pattern
 
 
 def download_morphe_patches(
+    owner: str,
     repo: str,
     dest: str = ".",
     token: str | None = None,
+    output: str | None = None,
 ) -> str:
-    """Download the latest patches-*.mpp bundle from repo into dest.
+    """Download the latest patches-*.mpp bundle from owner/repo into dest.
 
-    repo is "owner/repo" (e.g. "MorpheApp/morphe-patches"). Resolves the
-    newest non-draft tag, then downloads the matching .mpp asset. Returns the
-    version string with a leading "v" stripped.
+    Resolves the newest non-draft tag, then downloads the matching .mpp
+    asset. The file is written as `output` (default: the asset's own name).
+    Returns the version string with a leading "v" stripped.
     """
-    tag = newest_tag(repo, token)
+    repo_full = f"{owner}/{repo}"
+    tag = newest_tag(repo_full, token)
     if not tag:
-        raise RuntimeError(f"no patches release found for {repo}")
+        raise RuntimeError(f"no patches release found for {repo_full}")
     ver = tag.removeprefix("v")
     pattern = f"patches-{ver}.mpp"
-    download_asset(repo, tag, pattern, dest, token)
+    download_asset(repo_full, tag, pattern, dest, token)
+    if output and output != pattern:
+        src = os.path.join(dest, pattern)
+        dst = os.path.join(dest, output)
+        if os.path.exists(src):
+            os.replace(src, dst)
     return ver
 
 
 def download_morphe_desktop(
-    repo: str = "MorpheApp/morphe-desktop",
+    owner: str,
+    repo: str,
     dest: str = ".",
     token: str | None = None,
+    output: str | None = None,
 ) -> str:
-    """Download the latest morphe-desktop-*-all.jar from repo into dest.
+    """Download the latest morphe-desktop-*-all.jar from owner/repo into dest.
 
     Inspects the release's assets and selects the first matching *-all.jar
     rather than guessing the filename from the tag, so a release whose tag and
-    asset version disagree still resolves correctly. Returns the version
-    string with a leading "v" stripped.
+    asset version disagree still resolves correctly. The file is written as
+    `output` (default: the asset's own name). Returns the version string with
+    a leading "v" stripped.
     """
-    tag = newest_tag(repo, token)
+    repo_full = f"{owner}/{repo}"
+    tag = newest_tag(repo_full, token)
     if not tag:
-        raise RuntimeError(f"no desktop release found for {repo}")
+        raise RuntimeError(f"no desktop release found for {repo_full}")
 
     r = _gh(
         [
-            "api", f"repos/{repo}/releases/tags/{tag}",
+            "api", f"repos/{repo_full}/releases/tags/{tag}",
             "--jq", "[.assets[].name | select(endswith(\"-all.jar\"))][0]",
         ],
         token,
     )
     if r.returncode != 0:
         raise RuntimeError(
-            f"asset lookup failed for {repo}@{tag}: {r.stderr}"
+            f"asset lookup failed for {repo_full}@{tag}: {r.stderr}"
         )
     asset = r.stdout.strip()
     if not asset:
         raise RuntimeError(
-            f"no -all.jar asset found on {repo}@{tag}"
+            f"no -all.jar asset found on {repo_full}@{tag}"
         )
-    download_asset(repo, tag, asset, dest, token)
+    download_asset(repo_full, tag, asset, dest, token)
+    if output and output != asset:
+        src = os.path.join(dest, asset)
+        dst = os.path.join(dest, output)
+        if os.path.exists(src):
+            os.replace(src, dst)
     return asset.removeprefix("morphe-desktop-").removesuffix("-all.jar")
 
 

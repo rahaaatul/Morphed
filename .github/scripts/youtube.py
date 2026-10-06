@@ -565,13 +565,15 @@ def cmd_fetch_toolchain(args) -> int:
         owner = args.owner or os.environ.get("MORPHE_OWNER", "")
         patches_repo = args.patches_repo or os.environ.get("MORPHE_PATCHES_REPO", "")
         desktop_repo = args.desktop_repo or os.environ.get("MORPHE_DESKTOP_REPO", "")
-        if owner and "/" not in patches_repo:
-            patches_repo = f"{owner}/{patches_repo}"
-        if owner and "/" not in desktop_repo:
-            desktop_repo = f"{owner}/{desktop_repo}"
 
-        patches_ver = download_morphe_patches(patches_repo, dest=".", token=args.token)
-        desktop_ver = download_morphe_desktop(desktop_repo, dest=".", token=args.token)
+        patches_ver = download_morphe_patches(
+            owner, patches_repo, dest=".", token=args.token,
+            output="patches.mpp",
+        )
+        desktop_ver = download_morphe_desktop(
+            owner, desktop_repo, dest=".", token=args.token,
+            output="morphe-desktop.jar",
+        )
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
@@ -580,9 +582,12 @@ def cmd_fetch_toolchain(args) -> int:
                 f.write(f"desktop_ver={desktop_ver}\n")
         print(f"patches: patches-{patches_ver}.mpp")
         print(f"patcher: morphe-desktop-{desktop_ver}-all.jar")
-        import subprocess
-
-        subprocess.run(["ls", "-la", "patches.mpp", "morphe-desktop.jar"], check=False)
+        for f in ("patches.mpp", "morphe-desktop.jar"):
+            p = pathlib.Path(f)
+            if p.exists():
+                print(f"{f}: {p.stat().st_size} bytes")
+            else:
+                print(f"{f}: MISSING")
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to fetch toolchain: {e}\n")
