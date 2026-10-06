@@ -773,7 +773,7 @@ def cmd_fetch_toolchain(args) -> int:
             sys.stderr.write("::error::No .jar asset found\n")
             return 1
 
-        import urllib.request
+        import requests
         patches_url = (
             f"https://github.com/{args.owner}/{args.patches_repo}"
             f"/releases/download/patches-{patches_ver}/patches-{patches_ver}.mpp"
@@ -783,12 +783,20 @@ def cmd_fetch_toolchain(args) -> int:
             f"/releases/download/v{desktop_ver}/morphe-desktop-{desktop_ver}-all.jar"
         )
         try:
-            urllib.request.urlretrieve(patches_url, "patches.mpp")
+            r = requests.get(patches_url, timeout=(10, 300), stream=True)
+            r.raise_for_status()
+            with open("patches.mpp", "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
         except Exception as e:
             sys.stderr.write(f"::error::Failed to download patches.mpp: {e}\n")
             return 1
         try:
-            urllib.request.urlretrieve(desktop_url, "morphe-desktop.jar")
+            r = requests.get(desktop_url, timeout=(10, 300), stream=True)
+            r.raise_for_status()
+            with open("morphe-desktop.jar", "wb") as f:
+                for chunk in r.iter_content(chunk_size=8192):
+                    f.write(chunk)
         except Exception as e:
             sys.stderr.write(f"::error::Failed to download morphe-desktop.jar: {e}\n")
             return 1
