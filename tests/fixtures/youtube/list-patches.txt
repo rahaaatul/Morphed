@@ -1,0 +1,6 @@
+Name: Change installer source
+Enabled: true
+Name: Disable Play Store updates
+Enabled: true
+Name: Some Other Patch
+Enabled: false
