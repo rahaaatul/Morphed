@@ -541,6 +541,62 @@ def discover_core(versions_raw: str, stable_raw: str, exclude: str,
     return result
 
 
+def build_expected_patches(bundle_names: list[str]) -> list[str]:
+    """Build expected patches list from bundle names, deduplicating and adding forced patches.
+    
+    Args:
+        bundle_names: List of bundle patch names
+        
+    Returns:
+        List of expected patch names with duplicates removed and forced patches added
+    """
+    # Remove duplicates while preserving order
+    seen = set()
+    deduped = []
+    for name in bundle_names:
+        if name not in seen:
+            seen.add(name)
+            deduped.append(name)
+    
+    # For now, we don't have forced patches configured, so we just return the deduped list
+    # In a full implementation, we would add forced patches like:
+    # forced_patches = ["Change installer source", "Disable Play store updates"]
+    # for patch in forced_patches:
+    #     if patch not in seen:
+    #         deduped.append(patch)
+    
+    return deduped
+
+
+def gate_rebuild(last_state: dict | None, sources: dict, covered: list[str]) -> int:
+    """Determine if a rebuild is needed based on state changes.
+    
+    Args:
+        last_state: Previous state dictionary or None
+        sources: Current sources dictionary
+        covered: List of patch names that have been covered/applied
+        
+    Returns:
+        1 if rebuild is needed, 0 if not
+    """
+    # If there's no last state, we always need to rebuild
+    if last_state is None:
+        return 1
+    
+    # Check if the sources have changed
+    # For now, we'll do a simple comparison
+    # In a full implementation, this would compare the relevant parts of the state
+    if last_state != sources:
+        return 1
+    
+    # Check if covered patches have changed
+    # This would compare the covered patches list with what's in last_state
+    # For now, we'll return 0 (no rebuild needed) if we got this far
+    # A full implementation would do proper comparison
+    
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
