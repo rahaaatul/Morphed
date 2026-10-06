@@ -16,19 +16,18 @@ import pathlib
 import re
 import sys
 import time
-from typing import List, Tuple, Dict, Optional
 
 # requests will be imported inside functions that need it to avoid hard dependency for pure functions
 
 
-def version_sort_key(version: str) -> Tuple[int, ...]:
+def version_sort_key(version: str) -> tuple[int, ...]:
     """
     Convert a version string into a tuple of integers for sorting.
     """
     return tuple(int(part) for part in version.split("."))
 
 
-def parse_version_lines(text: str) -> List[str]:
+def parse_version_lines(text: str) -> list[str]:
     """
     Parse the output of `morphe-desktop list-versions` to extract version strings.
     """
@@ -163,7 +162,7 @@ def pick_anchor(records, expected):
     return ""
 
 
-def _patch_row(patch: str, applied: List[str], failed: List[str]) -> str:
+def _patch_row(patch: str, applied: list[str], failed: list[str]) -> str:
     """Return a formatted table row for a patch: |emoji|patch|."""
     if patch in applied:
         emoji = "🟢"
@@ -765,13 +764,46 @@ def cmd_fetch_toolchain(args) -> int:
         result = fetch_toolchain(
             args.owner, args.patches_repo, args.desktop_repo, args.token
         )
+        patches_ver = result["patches_ver"]
+        desktop_ver = result["desktop_ver"]
+        if not patches_ver:
+            sys.stderr.write("::error::No .mpp asset found\n")
+            return 1
+        if not desktop_ver:
+            sys.stderr.write("::error::No .jar asset found\n")
+            return 1
+
+        import urllib.request
+        patches_url = (
+            f"https://github.com/{args.owner}/{args.patches_repo}"
+            f"/releases/download/patches-{patches_ver}/patches-{patches_ver}.mpp"
+        )
+        desktop_url = (
+            f"https://github.com/{args.owner}/{args.desktop_repo}"
+            f"/releases/download/v{desktop_ver}/morphe-desktop-{desktop_ver}-all.jar"
+        )
+        try:
+            urllib.request.urlretrieve(patches_url, "patches.mpp")
+        except Exception as e:
+            sys.stderr.write(f"::error::Failed to download patches.mpp: {e}\n")
+            return 1
+        try:
+            urllib.request.urlretrieve(desktop_url, "morphe-desktop.jar")
+        except Exception as e:
+            sys.stderr.write(f"::error::Failed to download morphe-desktop.jar: {e}\n")
+            return 1
+
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
             with open(github_output, "a") as f:
-                f.write(f"patches_ver={result['patches_ver']}\n")
-                f.write(f"desktop_ver={result['desktop_ver']}\n")
-        print(f"patches: patches-{result['patches_ver']}.mpp")
-        print(f"patcher: morphe-desktop-{result['desktop_ver']}-all.jar")
+                f.write(f"patches_ver={patches_ver}\n")
+                f.write(f"desktop_ver={desktop_ver}\n")
+        print(f"patches: patches-{patches_ver}.mpp")
+        print(f"patcher: morphe-desktop-{desktop_ver}-all.jar")
+        import subprocess
+        subprocess.run(
+            ["ls", "-la", "patches.mpp", "morphe-desktop.jar"], check=False
+        )
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to fetch toolchain: {e}\n")
@@ -805,14 +837,13 @@ def cmd_discover(args) -> int:
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
             with open(github_output, "a") as f:
-                for key, value in result.items():
-                    f.write(f"{key}={value}\n")
+                f.writelines(f"{key}={value}\n" for key, value in result.items())
 
         versions_list = json.loads(result.get("versions", "[]"))
         reused_list = json.loads(result.get("reused", "[]"))
         nothing_to_build = result.get("nothing_to_build", 0)
         if nothing_to_build > 0:
-            print(f"covering 0 version(s) (reused=0), nothing to build")
+            print("covering 0 version(s) (reused=0), nothing to build")
         else:
             print(
                 f"covering {len(versions_list)} version(s) (reused={len(reused_list)})"
@@ -1010,8 +1041,9 @@ def _contents_url(repo_full, path):
 
 def state_put(repo_full, state_path, content_str, message, token=None):
     """Commit state via the GitHub contents API with sha-conditional retry."""
-    import requests
     import base64
+
+    import requests
 
     content_b64 = base64.b64encode(content_str.encode()).decode()
     url = f"https://api.github.com{_contents_url(repo_full, state_path)}"
