@@ -832,6 +832,121 @@ def cmd_cleanup_artifacts(args) -> int:
         return 1
 
 
+YOUTUBE_ORG = "MorpheApp"
+YOUTUBE_REPO = "morphe-patches"
+STATE_PATH = ".github/tags/youtube.json"
+
+
+def youtube_state(records, patcher, package, sources_map):
+    """Build the committed build record.
+
+    Per patch, the versions it applied on and the versions it failed on. Storing that
+    history is what lets the next run decide whether anything actually changed, so the
+    record has to be built from what shipped rather than from what was attempted.
+    """
+    ordered = sorted(records or [], key=lambda r: version_sort_key(r["version"]),
+                     reverse=True)
+    versions = [r["version"] for r in ordered]
+    sources_out = {}
+    for owner, src in sources_map.items():
+        patches_out = {}
+        for name in src.get("list", []):
+            applied = [r["version"] for r in ordered if name in r.get("applied", [])]
+            failed = [r["version"] for r in ordered if name in r.get("failed", [])]
+            patches_out[name] = {"applied": applied, "failed": failed}
+        sources_out[owner] = {
+            "version": src.get("version", ""),
+            "list": list(src.get("list", [])),
+            "patches": patches_out,
+        }
+    return {
+        "owner": YOUTUBE_ORG,
+        "repo": YOUTUBE_REPO,
+        "package": package,
+        "versions": versions,
+        "patcher": patcher,
+        "sources": sources_out,
+    }
+
+
+def _contents_url(repo_full, path):
+    return f"/repos/{repo_full}/contents/{path}"
+
+
+def state_put(repo_full, state_path, content_str, message, token=None):
+    """Commit state via the GitHub contents API with sha-conditional retry."""
+    import requests
+    import base64
+
+    content_b64 = base64.b64encode(content_str.encode()).decode()
+    url = f"https://api.github.com{_contents_url(repo_full, state_path)}"
+    headers = {
+        "Accept": "application/vnd.github+json",
+        "Authorization": f"Bearer {token}",
+    }
+    for attempt in range(1, 6):
+        get_resp = requests.get(url, headers=headers)
+        sha = None
+        if get_resp.status_code == 200:
+            sha = get_resp.json().get("sha")
+        data = {
+            "message": message,
+            "content": content_b64,
+        }
+        if sha:
+            data["sha"] = sha
+        put_resp = requests.put(url, headers=headers, json=data)
+        if put_resp.status_code in (200, 201):
+            return
+        if attempt == 5:
+            sys.stderr.write(
+                f"::error::could not commit {state_path} after 5 attempts: "
+                f"{put_resp.text}\n")
+            sys.exit(1)
+        sys.stderr.write(
+            f"contents PUT conflicted (attempt {attempt}), "
+            f"retrying on fresh sha\n")
+        time.sleep(2 ** min(attempt, 4))
+
+
+def remove_youtube_entry_from_shared_state(path):
+    """Remove the youtube key from the shared patch_version.json."""
+    data = json.loads(pathlib.Path(path).read_text())
+    sources = data.get("source", {})
+    morpheapp = sources.get("MorpheApp", {})
+    patches = morpheapp.get("morphe-patches", {})
+    for tag, apps in patches.items():
+        if "youtube" in apps:
+            del apps["youtube"]
+            data["source"]["MorpheApp"]["morphe-patches"][tag] = apps
+    pathlib.Path(path).write_text(json.dumps(data, indent=2) + "\n")
+
+
+def cmd_record_state(args) -> int:
+    """Handle the record-state subcommand."""
+    try:
+        patcher = os.environ.get("PATCHER", "morphe-patches.mpp")
+        package = os.environ.get("PACKAGE", "com.google.android.youtube")
+        sources_map = json.loads(os.environ.get("SOURCES", "{}"))
+        token = os.environ.get("GH_TOKEN")
+        repo_full = os.environ.get("REPO_FULL", "rahaaatul/Morphed")
+
+        records = json.loads(pathlib.Path(args.keep_in).read_text()) if args.keep_in else []
+        if not records:
+            sys.stderr.write("Nothing shipped, leaving the state file alone\n")
+            return 0
+
+        record = youtube_state(records, patcher, package, sources_map)
+        content_str = json.dumps(record, indent=2) + "\n"
+
+        state_put(repo_full, args.state_file, content_str, f"Record YouTube build, patcher {patcher}", token=token)
+        sys.stderr.write(f"Committed {args.state_file}\n")
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to record state: {e}\n")
+        return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -888,6 +1003,12 @@ def main() -> None:
     p_cleanup.add_argument("--repo-full", required=True)
     p_cleanup.add_argument("--run-id", required=True)
     p_cleanup.set_defaults(func=cmd_cleanup_artifacts)
+
+    # record-state
+    p_record = subparsers.add_parser("record-state", help="Record build state")
+    p_record.add_argument("--keep-in", required=True)
+    p_record.add_argument("--state-file", required=True)
+    p_record.set_defaults(func=cmd_record_state)
 
     args = parser.parse_args()
     return args.func(args)
