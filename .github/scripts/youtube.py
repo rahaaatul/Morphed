@@ -27,18 +27,20 @@ def version_sort_key(version: str) -> tuple[int, ...]:
     return tuple(int(part) for part in version.split("."))
 
 
+_VERSION_RE = re.compile(r"\s*(\d+(?:\.\d+)+)")
+# Deliberately loose. `list-versions` prefixes entries with decorations we do not
+# care about, so we pull the first dotted number out of each line rather than
+# trying to model the exact output format, which upstream is free to change.
+
+
 def parse_version_lines(text: str) -> list[str]:
-    """
-    Parse the output of `morphe-desktop list-versions` to extract version strings.
-    """
-    versions = []
+    """Parse the output of `morphe-desktop list-versions` to extract version strings."""
+    out = []
     for line in text.splitlines():
-        # Look for lines that contain a version number (digits and dots) possibly preceded by a tab,
-        # followed by whitespace, an opening parenthesis, patch count, space, the word "patches", and a closing parenthesis.
-        match = re.search(r"\t?(\d+\.\d+\.\d+)\s+\(\d+\s+patches?\)", line)
-        if match:
-            versions.append(match.group(1))
-    return versions
+        m = _VERSION_RE.match(line)
+        if m:
+            out.append(m.group(1))
+    return out
 
 
 def strip_apk_version(filename: str) -> str:
