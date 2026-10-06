@@ -1,13 +1,13 @@
 import pathlib
 import sys
 import unittest
-from unittest.mock import patch, MagicMock
+from unittest.mock import MagicMock, patch
 
 _HERE = pathlib.Path(__file__).resolve().parent
 if str(_HERE) not in sys.path:
     sys.path.insert(0, str(_HERE))
 
-from loader import load  # noqa: E402
+from loader import load
 
 YouTube_vn = load()
 
@@ -102,6 +102,7 @@ class PatchTest(unittest.TestCase):
             cmd_str = " ".join(first_cmd)
             self.assertIn("artifacts", cmd_str)
             self.assertIn("12345", cmd_str)
+
 
 if __name__ == "__main__":
     unittest.main()
