@@ -10,6 +10,7 @@ step fails loudly rather than shipping a wrong APK or a wrong release body.
 """
 
 import argparse
+import json
 import os
 import pathlib
 import re
@@ -149,17 +150,170 @@ def pick_anchor(records, expected):
     return ""
 
 
+def _patch_row(patch: str, applied: List[str], failed: List[str]) -> str:
+    """Return a formatted table row for a patch: |emoji|patch|."""
+    if patch in applied:
+        emoji = "🟢"
+    elif patch in failed:
+        emoji = "🔴"
+    else:
+        emoji = "⚪"
+    return f"|{emoji}|{patch}|"
+
+
+def render_notes(records: list[dict], expected: list[str],
+                 tools: list[tuple[str, str, str]], microg_tag: str) -> str:
+    """Build the release body.
+
+    tools == [(name, repo_url, tag), ...] in display order (Morphe Desktop,
+    Morphe Patches, APKMD, MicroG). microg_tag == '' means "no block".
+    Returns str ending in a single newline.
+    """
+    lines = []
+    # MicroG block
+    if microg_tag:
+        microg_repo_url = ""
+        for name, repo_url, tag in tools:
+            if name == "MicroG":
+                microg_repo_url = repo_url
+                break
+        if not microg_repo_url:
+            microg_repo_url = "https://github.com/MorpheApp/MicroG-RE"
+        lines.append("> [!IMPORTANT]")
+        lines.append(f"> **[MicroG]({microg_repo_url}/releases/tag/{microg_tag})** is required to use this app")
+        lines.append("> Install the newest version before following the tip.")
+        lines.append("")
+    # TIP anchor line
+    anchor = pick_anchor(records, expected)
+    lines.append("> [!TIP]")
+    lines.append(f"> Install `{anchor}`. It is the newest version where every patch applied cleanly.")
+    lines.append("")
+    # Downloads header with note
+    lines.append("## Downloads")
+    lines.append("> [!NOTE]")
+    lines.append("> - `Stable` - Tested and Recommended")
+    lines.append("> - `Beta` - Works but not recommended")
+    lines.append("")
+    # Outer details
+    lines.append("<details>")
+    lines.append("<summary><b>Click here</b> to see the patches applied</summary>")
+    lines.append("<br>")
+    lines.append("")
+    # Inner details per version (newest first)
+    for record in records:
+        version = record["version"]
+        applied = record.get("applied", [])
+        failed = record.get("failed", [])
+        n_applied = sum(1 for p in expected if p in applied)
+        lines.append("<details>")
+        lines.append(f"<summary><b>v{version}</b> - <code>{n_applied} of {len(expected)}</code></summary>")
+        lines.append("<br>")
+        lines.append("")
+        # Table header
+        lines.append("|Status|Patch|")
+        lines.append("|:---:|:---:|")
+        # Rows for each expected patch
+        for patch in expected:
+            lines.append(_patch_row(patch, applied, failed))
+        lines.append("</details>")
+    # Close outer details
+    lines.append("")
+    lines.append("</details>")
+    lines.append("")
+    # Download table
+    lines.append("| Version | Channel | Arch | Size | Download |")
+    lines.append("|:-------:|:-------:|:---------:|:-----:|:------------------------:|")
+    for record in records:
+        version = record["version"]
+        size_mb = record["size"]
+        arm = "arm64-v8a"
+        channel = "Stable"
+        download_url = f"https://github.com/MorpheApp/YouTube/releases/download/youtube/{version}.apk"
+        icon_url = "https://raw.githubusercontent.com/MorpheApp/YouTube/main/icons/download.png"
+        lines.append(f"| {version} | {channel} | {arm} | {size_mb}.0MB | <a href=\"{download_url}\"><img src=\"{icon_url}\" width=\"20\" alt=\"Download {version}\"></a> |")
+    lines.append("")
+    # Tools used
+    lines.append("## Tools used")
+    lines.append("| Tool | Version |")
+    lines.append("|------|---------|")
+    for name, repo_url, tag in tools:
+        lines.append(f"| [{name}]({repo_url}/releases/tag/{tag}) | `{tag}` |")
+    # Ensure single trailing newline
+    result = "\n".join(lines)
+    if not result.endswith("\n"):
+        result += "\n"
+    return result
+
+
+def cmd_render_notes(args) -> int:
+    """Handle the render-notes subcommand."""
+    # Read expected patches
+    try:
+        with open(args.expected_patches, 'r') as f:
+            expected = json.load(f)
+        if not isinstance(expected, list):
+            sys.stderr.write("::error::Expected patches must be a JSON list\n")
+            return 1
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to read expected patches: {e}\n")
+        return 1
+
+    # Read release dir
+    try:
+        release_dir = args.release_dir
+        applied_dir = args.applied_dir
+        failed_dir = args.failed_dir
+        arch = args.arch
+        records = build_records(release_dir, applied_dir, failed_dir, arch)
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to build records: {e}\n")
+        return 1
+
+    if not records:
+        sys.stderr.write("::error::No records found\n")
+        return 1
+
+    # Read tools
+    try:
+        with open(args.tools_json, 'r') as f:
+            tools_data = json.load(f)
+        tools = [(t["name"], t["repo_url"], t["tag"]) for t in tools_data]
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to read tools JSON: {e}\n")
+        return 1
+
+    microg_tag = args.microg_tag or ""
+
+    result = render_notes(records, expected, tools, microg_tag)
+
+    try:
+        with open(args.output, 'w') as f:
+            f.write(result)
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to write output: {e}\n")
+        return 1
+
+    return 0
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
-    subparsers = parser.add_subparsers(dest='command')
+    subparsers = parser.add_subparsers(dest="command", required=True)
 
-    # We'll add subcommands later in subsequent tasks.
-    # For now, we just have a stub.
+    # render-notes
+    p_render = subparsers.add_parser("render-notes", help="Render release notes")
+    p_render.add_argument("--release-dir", required=True)
+    p_render.add_argument("--applied-dir", required=True)
+    p_render.add_argument("--failed-dir", required=True)
+    p_render.add_argument("--output", required=True)
+    p_render.add_argument("--expected-patches", required=True)
+    p_render.add_argument("--microg-tag", default="")
+    p_render.add_argument("--tools-json", required=True)
+    p_render.add_argument("--arch", required=True)
+    p_render.set_defaults(func=cmd_render_notes)
 
     args = parser.parse_args()
-    if not args.command:
-        parser.print_help()
-        sys.exit(1)
+    return args.func(args)
 
 
 if __name__ == '__main__':
