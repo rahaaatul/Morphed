@@ -597,6 +597,156 @@ def gate_rebuild(last_state: dict | None, sources: dict, covered: list[str]) -> 
     return 0
 
 
+def _run_java(cmd: list[str], timeout: int = 600, capture_output: bool = False) -> str:
+    """Run a Java command and return its output.
+    
+    Args:
+        cmd: Command and arguments as list of strings
+        timeout: Timeout in seconds
+        capture_output: Whether to capture and return output
+        
+    Returns:
+        Command output as string if capture_output is True, otherwise empty string
+    """
+    try:
+        import subprocess
+        result = subprocess.run(cmd, timeout=timeout, capture_output=capture_output, text=True, check=False)
+        if capture_output:
+            return result.stdout.strip()
+        return ""
+    except Exception as e:
+        sys.stderr.write(f"::warning::Java command failed: {e}\n")
+        return "" if capture_output else ""
+
+
+def _run_bun(cmd: list[str], timeout: int = 1200, capture_output: bool = False) -> str:
+    """Run a Bun command and return its output.
+    
+    Args:
+        cmd: Command and arguments as list of strings
+        timeout: Timeout in seconds
+        capture_output: Whether to capture and return output
+        
+    Returns:
+        Command output as string if capture_output is True, otherwise empty string
+    """
+    try:
+        import subprocess
+        result = subprocess.run(cmd, timeout=timeout, capture_output=capture_output, text=True, check=False)
+        if capture_output:
+            return result.stdout.strip()
+        return ""
+    except Exception as e:
+        sys.stderr.write(f"::warning::Bun command failed: {e}\n")
+        return "" if capture_output else ""
+
+
+def _run_gh(cmd: list[str], capture_output: bool = False) -> str:
+    """Run a GitHub CLI command and return its output.
+    
+    Args:
+        cmd: Command and arguments as list of strings
+        capture_output: Whether to capture and return output
+        
+    Returns:
+        Command output as string if capture_output is True, otherwise empty string
+    """
+    try:
+        import subprocess
+        result = subprocess.run(cmd, capture_output=capture_output, text=True, check=False)
+        if capture_output:
+            return result.stdout.strip()
+        return ""
+    except Exception as e:
+        sys.stderr.write(f"::warning::GitHub CLI command failed: {e}\n")
+        return "" if capture_output else ""
+
+
+def cmd_fetch_toolchain(args) -> int:
+    """Handle the fetch-toolchain subcommand."""
+    try:
+        result = fetch_toolchain(args.owner, args.patches_repo, args.desktop_repo, args.token)
+        # Write outputs to $GITHUB_OUTPUT format
+        print(f"PATCHES_VER={result['patches_ver']}")
+        print(f"DESKTOP_VER={result['desktop_ver']}")
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to fetch toolchain: {e}\n")
+        return 1
+
+
+def cmd_discover(args) -> int:
+    """Handle the discover subcommand."""
+    try:
+        # Parse the inputs
+        versions_raw = args.versions_raw or ""
+        stable_raw = args.stable_raw or ""
+        exclude = args.exclude or ""
+        
+        # Handle state if provided
+        state = None
+        if args.state:
+            try:
+                with open(args.state, 'r') as f:
+                    state = json.load(f)
+            except Exception as e:
+                sys.stderr.write(f"::warning::Failed to read state file: {e}\n")
+        
+        result = discover_core(
+            versions_raw, stable_raw, exclude,
+            state, args.patches_ver, args.bundle_patch_names
+        )
+        
+        # Write outputs to $GITHUB_OUTPUT format
+        for key, value in result.items():
+            if isinstance(value, str):
+                print(f"{key.upper()}={value}")
+            else:
+                print(f"{key.upper()}={value}")
+        
+        # Print the covering message
+        nothing_to_build = result.get("nothing_to_build", 0)
+        if nothing_to_build > 0:
+            print(f"covering {nothing_to_build} version(s) (reused=...), nothing to build")
+        else:
+            # Calculate covered count from result if available
+            reused_str = result.get("reused", "[]")
+            try:
+                reused_list = json.loads(reused_str)
+                reused_count = len(reused_list)
+                if reused_count > 0:
+                    print(f"covering {len(json.loads(result['versions']))} version(s) (reused={reused_count})")
+                else:
+                    print(f"covering {len(json.loads(result['versions']))} version(s) (reused=0)")
+            except:
+                print(f"covering {len(json.loads(result['versions']))} version(s) (reused=0)")
+        
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to discover: {e}\n")
+        return 1
+
+
+def cmd_select_options(args) -> int:
+    """Handle the select-options subcommand."""
+    try:
+        # Run the java options-create command
+        cmd = [
+            "java", "-jar", "morphe-desktop.jar",
+            "options-create",
+            "-f", args.package,
+            "-o", "options.json",
+            "-p", args.patch_bundle
+        ]
+        output = _run_java(cmd, capture_output=True)
+        if output:
+            print(output)
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to run select-options: {e}\n")
+        return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -612,6 +762,30 @@ def main() -> None:
     p_render.add_argument("--tools-json", required=True)
     p_render.add_argument("--arch", required=True)
     p_render.set_defaults(func=cmd_render_notes)
+
+    # fetch-toolchain
+    p_fetch = subparsers.add_parser("fetch-toolchain", help="Fetch toolchain versions")
+    p_fetch.add_argument("--owner", required=True)
+    p_fetch.add_argument("--patches-repo", required=True)
+    p_fetch.add_argument("--desktop-repo", required=True)
+    p_fetch.add_argument("--token", required=True)
+    p_fetch.set_defaults(func=cmd_fetch_toolchain)
+
+    # discover
+    p_discover = subparsers.add_parser("discover", help="Discover versions and build matrix")
+    p_discover.add_argument("--versions-raw", default="")
+    p_discover.add_argument("--stable-raw", default="")
+    p_discover.add_argument("--exclude", default="")
+    p_discover.add_argument("--state", help="Path to state JSON file")
+    p_discover.add_argument("--patches-ver", required=True)
+    p_discover.add_argument("--bundle-patch-names", required=True)
+    p_discover.set_defaults(func=cmd_discover)
+
+    # select-options
+    p_select = subparsers.add_parser("select-options", help="Select options for building")
+    p_select.add_argument("--package", required=True)
+    p_select.add_argument("--patch-bundle", required=True)
+    p_select.set_defaults(func=cmd_select_options)
 
     args = parser.parse_args()
     return args.func(args)
