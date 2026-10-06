@@ -677,6 +677,73 @@
               "20.21.37"
             ]
           }
+        },
+        "1.46.0-dev.8": {
+          "youtube-music": {
+            "org": "google-inc",
+            "repo": "youtube-music",
+            "package": "com.google.android.apps.youtube.music",
+            "desktop": "1.18.1-dev.5",
+            "patches_applied": [
+              "Android Auto",
+              "App refresh rate",
+              "Bypass certificate checks",
+              "Change header",
+              "Change installer source",
+              "Change miniplayer color",
+              "Change start page",
+              "Check watch history domain name resolution",
+              "Crossfade",
+              "Custom branding",
+              "Disable DRC audio",
+              "Disable Play Store updates",
+              "Disable QUIC protocol",
+              "Disable dislike redirection",
+              "Downloads",
+              "Enable debugging",
+              "Enable exclusive audio playback",
+              "Enable forced miniplayer",
+              "Enable swipe to dismiss miniplayer",
+              "Force original audio",
+              "Force portrait orientation",
+              "GmsCore support",
+              "Hide ads",
+              "Hide buttons",
+              "Hide filter bar",
+              "Hide flyout menu components",
+              "Hide layout components",
+              "Hide music action buttons",
+              "Jam queue sharing",
+              "Media notification controls",
+              "Miniplayer previous and next buttons",
+              "Navigation bar",
+              "Play albums songs",
+              "Playback speed",
+              "PoToken provider",
+              "Remember repeat state",
+              "Remember shuffle state",
+              "Remove background playback restrictions",
+              "Remove viewer discretion dialog",
+              "Return YouTube Dislike",
+              "Sanitize sharing links",
+              "Scrobbling",
+              "Settings menu filter",
+              "Skip silence",
+              "SponsorBlock",
+              "Spoof app version",
+              "Spoof video streams",
+              "Theme",
+              "Third-party lyrics"
+            ],
+            "patches_failed": [],
+            "versions": [
+              "9.40.51",
+              "9.39.52",
+              "9.38.51",
+              "9.20.53",
+              "9.15.51"
+            ]
+          }
         }
       }
     }
