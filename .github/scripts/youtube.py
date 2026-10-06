@@ -411,9 +411,9 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                                 name = jar_asset["name"]
                                 # Expected format: morphe-desktop-<version>-all.jar or morphe-desktop-<version>.jar
                                 if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
-                                    desktop_ver = name[17:-10]  # strip "morphe-desktop-" and "-all.jar"
+                                    desktop_ver = name[15:-8]  # strip "morphe-desktop-" and "-all.jar"
                                 elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
-                                    desktop_ver = name[17:-4]  # strip "morphe-desktop-" and ".jar"
+                                    desktop_ver = name[15:-4]  # strip "morphe-desktop-" and ".jar"
                                 else:
                                     desktop_ver = ""
                                 break
@@ -426,9 +426,9 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                         if jar_asset:
                             name = jar_asset["name"]
                             if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
-                                desktop_ver = name[17:-10]
+                                desktop_ver = name[15:-8]
                             elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
-                                desktop_ver = name[17:-4]
+                                desktop_ver = name[15:-4]
                             else:
                                 desktop_ver = ""
         except Exception as e:
