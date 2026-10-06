@@ -26,8 +26,8 @@ fetch_toolchain() {
   curl -fsSL -o patches.mpp "$patches_url"
   curl -fsSL -o morphe-desktop.jar "$desktop_url"
 
-  echo "patches_ver=$(basename "$patches_url" .mpp | sed 's/^patches-//')" >> "$GITHUB_OUTPUT"
-  echo "desktop_ver=$(basename "$desktop_url" .jar | sed 's/^morphe-desktop-//;s/-all$//')" >> "$GITHUB_OUTPUT"
+  echo "patches_ver=$(basename "$patches_url" .mpp | sed 's/^patches-//')" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "desktop_ver=$(basename "$desktop_url" .jar | sed 's/^morphe-desktop-//;s/-all$//')" >> "${GITHUB_OUTPUT:-/dev/null}"
 
   echo "patches: $(basename "$patches_url")"
   echo "patcher: $(basename "$desktop_url")"
@@ -77,8 +77,8 @@ download_apk() {
   cp "$src" "$CACHE_DIR/$cache_key"
   dest="./download/${APP_SLUG}-${1}-${ARCH}.apk"
   mv "$src" "$dest"
-  echo "name=$dest" >> "$GITHUB_OUTPUT"
-  echo "size=$(du -h "$dest" | cut -f1)" >> "$GITHUB_OUTPUT"
+  echo "name=$dest" >> "${GITHUB_OUTPUT:-/dev/null}"
+  echo "size=$(du -h "$dest" | cut -f1)" >> "${GITHUB_OUTPUT:-/dev/null}"
   ls -la "$dest"
 }
 
