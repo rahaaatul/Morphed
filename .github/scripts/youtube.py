@@ -931,7 +931,14 @@ def cmd_record_state(args) -> int:
         token = os.environ.get("GH_TOKEN")
         repo_full = os.environ.get("REPO_FULL", "rahaaatul/Morphed")
 
-        records = json.loads(pathlib.Path(args.keep_in).read_text()) if args.keep_in else []
+        keep = json.loads(pathlib.Path(args.keep_in).read_text()) if args.keep_in else {}
+        versions = keep.get("versions", [])
+        applied = keep.get("applied", [])
+        failed = keep.get("failed", [])
+        records = [
+            {"version": v, "applied": applied, "failed": failed}
+            for v in versions
+        ]
         if not records:
             sys.stderr.write("Nothing shipped, leaving the state file alone\n")
             return 0
