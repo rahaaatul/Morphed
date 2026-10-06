@@ -69,8 +69,8 @@ jobs:
         run: |
           python3 .github/scripts/youtube.py fetch-toolchain \
             --owner "$MORPHE_OWNER" \
-            --patches-repo "$MORPHE_OWNER/$MORPHE_PATCHES_REPO" \
-            --desktop-repo "$MORPHE_OWNER/$MORPHE_DESKTOP_REPO" \
+            --patches-repo "$MORPHE_PATCHES_REPO" \
+            --desktop-repo "$MORPHE_DESKTOP_REPO" \
             --token "$GH_TOKEN"
 
       - name: List supported versions

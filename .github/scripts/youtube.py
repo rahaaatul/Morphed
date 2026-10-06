@@ -565,13 +565,17 @@ def cmd_fetch_toolchain(args) -> int:
         owner = args.owner or os.environ.get("MORPHE_OWNER", "")
         patches_repo = args.patches_repo or os.environ.get("MORPHE_PATCHES_REPO", "")
         desktop_repo = args.desktop_repo or os.environ.get("MORPHE_DESKTOP_REPO", "")
+        if owner and "/" not in patches_repo:
+            patches_repo = f"{owner}/{patches_repo}"
+        if owner and "/" not in desktop_repo:
+            desktop_repo = f"{owner}/{desktop_repo}"
 
         patches_ver = download_morphe_patches(
-            owner, patches_repo, dest=".", token=args.token,
+            owner, patches_repo.rsplit("/", 1)[-1], dest=".", token=args.token,
             output="patches.mpp",
         )
         desktop_ver = download_morphe_desktop(
-            owner, desktop_repo, dest=".", token=args.token,
+            owner, desktop_repo.rsplit("/", 1)[-1], dest=".", token=args.token,
             output="morphe-desktop.jar",
         )
 
