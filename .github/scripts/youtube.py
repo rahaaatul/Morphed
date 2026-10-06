@@ -747,6 +747,91 @@ def cmd_select_options(args) -> int:
         return 1
 
 
+def cmd_download_apk(args) -> int:
+    """Handle the download-apk subcommand."""
+    try:
+        cmd = [
+            "bun",
+            "node_modules/apkmirror-downloader/dist/cli.js",
+            "download",
+            "google-inc",
+            "youtube",
+            f"--version={args.version}",
+            "--outdir=download",
+        ]
+        _run_bun(cmd, capture_output=False)
+        apks = list(pathlib.Path("download").glob("*.apk"))
+        if not apks:
+            sys.stderr.write(f"::error::No APK downloaded for {args.version}\n")
+            return 1
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to download APK: {e}\n")
+        return 1
+
+
+def cmd_patch(args) -> int:
+    """Handle the patch subcommand."""
+    try:
+        cmd = [
+            "java",
+            "-jar",
+            "morphe-desktop.jar",
+            "patch",
+            "-e",
+            "patcher.mpp",
+            "-l",
+            args.version,
+            "-o",
+            "ship",
+            "-f",
+            "com.google.android.youtube",
+            "-a",
+            args.arch,
+            "--options",
+            "options.json",
+        ]
+        _run_java(cmd, capture_output=False)
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to patch APK: {e}\n")
+        return 1
+
+
+def cmd_cleanup_artifacts(args) -> int:
+    """Handle the cleanup-artifacts subcommand."""
+    try:
+        list_cmd = [
+            "gh",
+            "api",
+            f"repos/{args.repo_full}/actions/runs/{args.run_id}/artifacts",
+            "--paginate",
+            "--jq",
+            ".artifacts[].id",
+        ]
+        output = _run_gh(list_cmd, capture_output=True)
+        if not output:
+            return 0
+        artifact_ids = output.split("\n")
+        count = 0
+        for artifact_id in artifact_ids:
+            if not artifact_id:
+                continue
+            delete_cmd = [
+                "gh",
+                "api",
+                f"repos/{args.repo_full}/actions/artifacts/{artifact_id}",
+                "--method",
+                "DELETE",
+            ]
+            _run_gh(delete_cmd, capture_output=False)
+            count += 1
+        return 0
+    except Exception as e:
+        sys.stderr.write(f"::error::Failed to cleanup artifacts: {e}\n")
+        return 1
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
@@ -786,6 +871,23 @@ def main() -> None:
     p_select.add_argument("--package", required=True)
     p_select.add_argument("--patch-bundle", required=True)
     p_select.set_defaults(func=cmd_select_options)
+
+    # download-apk
+    p_download = subparsers.add_parser("download-apk", help="Download APK via APKMirror")
+    p_download.add_argument("--version", required=True)
+    p_download.set_defaults(func=cmd_download_apk)
+
+    # patch
+    p_patch = subparsers.add_parser("patch", help="Patch APK via Morphe Desktop")
+    p_patch.add_argument("--version", required=True)
+    p_patch.add_argument("--arch", required=True)
+    p_patch.set_defaults(func=cmd_patch)
+
+    # cleanup-artifacts
+    p_cleanup = subparsers.add_parser("cleanup-artifacts", help="Clean up run artifacts")
+    p_cleanup.add_argument("--repo-full", required=True)
+    p_cleanup.add_argument("--run-id", required=True)
+    p_cleanup.set_defaults(func=cmd_cleanup_artifacts)
 
     args = parser.parse_args()
     return args.func(args)
