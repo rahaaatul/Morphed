@@ -60,10 +60,6 @@ jobs:
 
       - name: List supported versions
         id: versions
-        env:
-          GH_TOKEN: ${{ github.token }}
-          STATE_FILE: patch_version.json
-          patches_ver: ${{ steps.meta.outputs.patches_ver }}
         run: |
           set -euo pipefail
           bash .github/scripts/youtube.sh list_versions
