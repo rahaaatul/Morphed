@@ -776,7 +776,7 @@ def cmd_fetch_toolchain(args) -> int:
         import requests
         patches_url = (
             f"https://github.com/{args.owner}/{args.patches_repo}"
-            f"/releases/download/patches-{patches_ver}/patches-{patches_ver}.mpp"
+            f"/releases/download/v{patches_ver}/patches-{patches_ver}.mpp"
         )
         desktop_url = (
             f"https://github.com/{args.owner}/{args.desktop_repo}"
