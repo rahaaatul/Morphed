@@ -25,7 +25,7 @@ def version_sort_key(version: str) -> Tuple[int, ...]:
     """
     Convert a version string into a tuple of integers for sorting.
     """
-    return tuple(int(part) for part in version.split('.'))
+    return tuple(int(part) for part in version.split("."))
 
 
 def parse_version_lines(text: str) -> List[str]:
@@ -34,9 +34,9 @@ def parse_version_lines(text: str) -> List[str]:
     """
     versions = []
     for line in text.splitlines():
-        # Look for lines that contain a version number (digits and dots) possibly preceded by a tab, 
+        # Look for lines that contain a version number (digits and dots) possibly preceded by a tab,
         # followed by whitespace, an opening parenthesis, patch count, space, the word "patches", and a closing parenthesis.
-        match = re.search(r'\t?(\d+\.\d+\.\d+)\s+\(\d+\s+patches?\)', line)
+        match = re.search(r"\t?(\d+\.\d+\.\d+)\s+\(\d+\s+patches?\)", line)
         if match:
             versions.append(match.group(1))
     return versions
@@ -48,11 +48,11 @@ def strip_apk_version(filename: str) -> str:
     Returns None if no version is found.
     """
     # Match a version number (digits and dots) at the end of the filename, possibly preceded by a hyphen.
-    match = re.search(r'(\d+\.\d+\.\d+)$', filename)
+    match = re.search(r"(\d+\.\d+\.\d+)$", filename)
     if match:
         return match.group(1)
     # If no version at the end, try to find a version in the middle (e.g., "app-release-21.39.522.apk")
-    match = re.search(r'(\d+\.\d+\.\d+)', filename)
+    match = re.search(r"(\d+\.\d+\.\d+)", filename)
     if match:
         return match.group(1)
     return None
@@ -63,7 +63,7 @@ def parse_list_patches(text):
     current = None
     for line in text.splitlines():
         if line.startswith("Name: "):
-            current = line[len("Name: "):]
+            current = line[len("Name: ") :]
         elif line.startswith("Enabled: "):
             parts = line.split()
             if len(parts) >= 2 and parts[1] == "true" and current is not None:
@@ -120,19 +120,28 @@ def build_records(release_dir, applied_dir, failed_dir, arch):
                 # omits this version's outcome. Better to fail than to under-report.
                 sys.stderr.write(
                     f"::error::{kind}/{kind}-{v}.txt is missing, "
-                    f"cannot describe {v} in the release body\n")
+                    f"cannot describe {v} in the release body\n"
+                )
                 sys.exit(1)
-        applied = [ln.strip() for ln in (dirs["applied"] /
-                     f"applied-{v}.txt").read_text().splitlines() if ln.strip()]
-        failed = [ln.strip() for ln in (dirs["failed"] /
-                   f"failed-{v}.txt").read_text().splitlines() if ln.strip()]
-        records.append({
-            "version": v,
-            "size": apk.stat().st_size // (1024 * 1024),
-            "arch": arch,
-            "applied": applied,
-            "failed": failed,
-        })
+        applied = [
+            ln.strip()
+            for ln in (dirs["applied"] / f"applied-{v}.txt").read_text().splitlines()
+            if ln.strip()
+        ]
+        failed = [
+            ln.strip()
+            for ln in (dirs["failed"] / f"failed-{v}.txt").read_text().splitlines()
+            if ln.strip()
+        ]
+        records.append(
+            {
+                "version": v,
+                "size": apk.stat().st_size // (1024 * 1024),
+                "arch": arch,
+                "applied": applied,
+                "failed": failed,
+            }
+        )
     records.sort(key=lambda r: version_sort_key(r["version"]), reverse=True)
     return records
 
@@ -144,8 +153,9 @@ def pick_anchor(records, expected):
     the patch results rather than trusted from the bundles' own recommendation,
     because a recommended version can still fail to apply cleanly in practice.
     """
-    ordered = sorted(records, key=lambda r: version_sort_key(r["version"]),
-                     reverse=True)
+    ordered = sorted(
+        records, key=lambda r: version_sort_key(r["version"]), reverse=True
+    )
     want = set(expected)
     for r in ordered:
         if want <= set(r.get("applied", [])):
@@ -164,8 +174,12 @@ def _patch_row(patch: str, applied: List[str], failed: List[str]) -> str:
     return f"|{emoji}|{patch}|"
 
 
-def render_notes(records: list[dict], expected: list[str],
-                 tools: list[tuple[str, str, str]], microg_tag: str) -> str:
+def render_notes(
+    records: list[dict],
+    expected: list[str],
+    tools: list[tuple[str, str, str]],
+    microg_tag: str,
+) -> str:
     """Build the release body.
 
     tools == [(name, repo_url, tag), ...] in display order (Morphe Desktop,
@@ -183,13 +197,17 @@ def render_notes(records: list[dict], expected: list[str],
         if not microg_repo_url:
             microg_repo_url = "https://github.com/MorpheApp/MicroG-RE"
         lines.append("> [!IMPORTANT]")
-        lines.append(f"> **[MicroG]({microg_repo_url}/releases/tag/{microg_tag})** is required to use this app")
+        lines.append(
+            f"> **[MicroG]({microg_repo_url}/releases/tag/{microg_tag})** is required to use this app"
+        )
         lines.append("> Install the newest version before following the tip.")
         lines.append("")
     # TIP anchor line
     anchor = pick_anchor(records, expected)
     lines.append("> [!TIP]")
-    lines.append(f"> Install `{anchor}`. It is the newest version where every patch applied cleanly.")
+    lines.append(
+        f"> Install `{anchor}`. It is the newest version where every patch applied cleanly."
+    )
     lines.append("")
     # Downloads header with note
     lines.append("## Downloads")
@@ -209,7 +227,9 @@ def render_notes(records: list[dict], expected: list[str],
         failed = record.get("failed", [])
         n_applied = sum(1 for p in expected if p in applied)
         lines.append("<details>")
-        lines.append(f"<summary><b>v{version}</b> - <code>{n_applied} of {len(expected)}</code></summary>")
+        lines.append(
+            f"<summary><b>v{version}</b> - <code>{n_applied} of {len(expected)}</code></summary>"
+        )
         lines.append("<br>")
         lines.append("")
         # Table header
@@ -233,7 +253,9 @@ def render_notes(records: list[dict], expected: list[str],
         channel = "Stable"
         download_url = f"https://github.com/MorpheApp/YouTube/releases/download/youtube/{version}.apk"
         icon_url = "https://raw.githubusercontent.com/MorpheApp/YouTube/main/icons/download.png"
-        lines.append(f"| {version} | {channel} | {arm} | {size_mb}.0MB | <a href=\"{download_url}\"><img src=\"{icon_url}\" width=\"20\" alt=\"Download {version}\"></a> |")
+        lines.append(
+            f'| {version} | {channel} | {arm} | {size_mb}.0MB | <a href="{download_url}"><img src="{icon_url}" width="20" alt="Download {version}"></a> |'
+        )
     lines.append("")
     # Tools used
     lines.append("## Tools used")
@@ -252,7 +274,7 @@ def cmd_render_notes(args) -> int:
     """Handle the render-notes subcommand."""
     # Read expected patches
     try:
-        with open(args.expected_patches, 'r') as f:
+        with open(args.expected_patches, "r") as f:
             expected = json.load(f)
         if not isinstance(expected, list):
             sys.stderr.write("::error::Expected patches must be a JSON list\n")
@@ -278,7 +300,7 @@ def cmd_render_notes(args) -> int:
 
     # Read tools
     try:
-        with open(args.tools_json, 'r') as f:
+        with open(args.tools_json, "r") as f:
             tools_data = json.load(f)
         tools = [(t["name"], t["repo_url"], t["tag"]) for t in tools_data]
     except Exception as e:
@@ -290,7 +312,7 @@ def cmd_render_notes(args) -> int:
     result = render_notes(records, expected, tools, microg_tag)
 
     try:
-        with open(args.output, 'w') as f:
+        with open(args.output, "w") as f:
             f.write(result)
     except Exception as e:
         sys.stderr.write(f"::error::Failed to write output: {e}\n")
@@ -299,29 +321,36 @@ def cmd_render_notes(args) -> int:
     return 0
 
 
-def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
-                    token: str) -> dict:
+def fetch_toolchain(
+    owner: str, patches_repo: str, desktop_repo: str, token: str
+) -> dict:
     """Fetch the latest versions of patches and desktop toolchain.
     Returns {"patches_ver": str, "desktop_ver": str}.
     """
     try:
         import requests
     except ImportError:
-        sys.stderr.write("::warning::requests module not available, cannot fetch toolchain\n")
+        sys.stderr.write(
+            "::warning::requests module not available, cannot fetch toolchain\n"
+        )
         return {"patches_ver": "", "desktop_ver": ""}
-    
+
     # Fetch patches
-    patches_url = f"https://api.github.com/repos/{owner}/{patches_repo}/releases?per_page=100"
+    patches_url = (
+        f"https://api.github.com/repos/{owner}/{patches_repo}/releases?per_page=100"
+    )
     # Fetch desktop
-    desktop_url = f"https://api.github.com/repos/{owner}/{desktop_repo}/releases?per_page=100"
-    
+    desktop_url = (
+        f"https://api.github.com/repos/{owner}/{desktop_repo}/releases?per_page=100"
+    )
+
     session = requests.Session()
     # We'll use a simple retry loop for each request
     max_attempts = 3
     backoff_factor = 1
     patches_ver = ""
     desktop_ver = ""
-    
+
     # Helper function to attempt a request and return the response or None
     def fetch_url(url):
         for attempt in range(max_attempts):
@@ -331,18 +360,26 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                     return resp
                 else:
                     if attempt < max_attempts - 1:
-                        sys.stderr.write(f"::warning::Attempt {attempt+1} failed with status {resp.status_code}, retrying...\n")
-                        time.sleep(backoff_factor * (2 ** attempt))  # exponential backoff
+                        sys.stderr.write(
+                            f"::warning::Attempt {attempt + 1} failed with status {resp.status_code}, retrying...\n"
+                        )
+                        time.sleep(backoff_factor * (2**attempt))  # exponential backoff
                     else:
-                        sys.stderr.write(f"::warning::All {max_attempts} attempts failed. Last status: {resp.status_code}\n")
+                        sys.stderr.write(
+                            f"::warning::All {max_attempts} attempts failed. Last status: {resp.status_code}\n"
+                        )
             except Exception as e:
                 if attempt < max_attempts - 1:
-                    sys.stderr.write(f"::warning::Attempt {attempt+1} failed with exception: {e}, retrying...\n")
-                    time.sleep(backoff_factor * (2 ** attempt))
+                    sys.stderr.write(
+                        f"::warning::Attempt {attempt + 1} failed with exception: {e}, retrying...\n"
+                    )
+                    time.sleep(backoff_factor * (2**attempt))
                 else:
-                    sys.stderr.write(f"::warning::All {max_attempts} attempts failed. Last exception: {e}\n")
+                    sys.stderr.write(
+                        f"::warning::All {max_attempts} attempts failed. Last exception: {e}\n"
+                    )
         return None
-    
+
     # Get patches version
     patches_resp = fetch_url(patches_url)
     if patches_resp is not None:
@@ -362,12 +399,23 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                         assets = rel.get("assets", [])
                         if assets:
                             # Find the .mpp asset
-                            mpp_asset = next((a for a in assets if a.get("name", "").endswith(".mpp")), None)
+                            mpp_asset = next(
+                                (
+                                    a
+                                    for a in assets
+                                    if a.get("name", "").endswith(".mpp")
+                                ),
+                                None,
+                            )
                             if mpp_asset:
                                 name = mpp_asset["name"]
                                 # Expected format: patches-<version>.mpp
-                                if name.startswith("patches-") and name.endswith(".mpp"):
-                                    patches_ver = name[8:-4]  # strip "patches-" and ".mpp"
+                                if name.startswith("patches-") and name.endswith(
+                                    ".mpp"
+                                ):
+                                    patches_ver = name[
+                                        8:-4
+                                    ]  # strip "patches-" and ".mpp"
                                 else:
                                     patches_ver = ""
                                 break
@@ -376,7 +424,10 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                     rel = patches_releases[0]
                     assets = rel.get("assets", [])
                     if assets:
-                        mpp_asset = next((a for a in assets if a.get("name", "").endswith(".mpp")), None)
+                        mpp_asset = next(
+                            (a for a in assets if a.get("name", "").endswith(".mpp")),
+                            None,
+                        )
                         if mpp_asset:
                             name = mpp_asset["name"]
                             if name.startswith("patches-") and name.endswith(".mpp"):
@@ -386,7 +437,7 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
         except Exception as e:
             sys.stderr.write(f"::warning::Error processing patches data: {e}\n")
             patches_ver = ""
-    
+
     # Get desktop version
     desktop_resp = fetch_url(desktop_url)
     if desktop_resp is not None:
@@ -406,14 +457,29 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                         assets = rel.get("assets", [])
                         if assets:
                             # Find the .jar asset
-                            jar_asset = next((a for a in assets if a.get("name", "").endswith(".jar")), None)
+                            jar_asset = next(
+                                (
+                                    a
+                                    for a in assets
+                                    if a.get("name", "").endswith(".jar")
+                                ),
+                                None,
+                            )
                             if jar_asset:
                                 name = jar_asset["name"]
                                 # Expected format: morphe-desktop-<version>-all.jar or morphe-desktop-<version>.jar
-                                if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
-                                    desktop_ver = name[15:-8]  # strip "morphe-desktop-" and "-all.jar"
-                                elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
-                                    desktop_ver = name[15:-4]  # strip "morphe-desktop-" and ".jar"
+                                if name.startswith("morphe-desktop-") and name.endswith(
+                                    "-all.jar"
+                                ):
+                                    desktop_ver = name[
+                                        15:-8
+                                    ]  # strip "morphe-desktop-" and "-all.jar"
+                                elif name.startswith(
+                                    "morphe-desktop-"
+                                ) and name.endswith(".jar"):
+                                    desktop_ver = name[
+                                        15:-4
+                                    ]  # strip "morphe-desktop-" and ".jar"
                                 else:
                                     desktop_ver = ""
                                 break
@@ -422,69 +488,76 @@ def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
                     rel = desktop_releases[0]
                     assets = rel.get("assets", [])
                     if assets:
-                        jar_asset = next((a for a in assets if a.get("name", "").endswith(".jar")), None)
+                        jar_asset = next(
+                            (a for a in assets if a.get("name", "").endswith(".jar")),
+                            None,
+                        )
                         if jar_asset:
                             name = jar_asset["name"]
-                            if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
+                            if name.startswith("morphe-desktop-") and name.endswith(
+                                "-all.jar"
+                            ):
                                 desktop_ver = name[15:-8]
-                            elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
+                            elif name.startswith("morphe-desktop-") and name.endswith(
+                                ".jar"
+                            ):
                                 desktop_ver = name[15:-4]
                             else:
                                 desktop_ver = ""
         except Exception as e:
             sys.stderr.write(f"::warning::Error processing desktop data: {e}\n")
             desktop_ver = ""
-    
+
     session.close()
     return {"patches_ver": patches_ver, "desktop_ver": desktop_ver}
 
 
 def build_matrix(versions: list[str]) -> tuple[str, str, int]:
     """Build the versions matrix string for discover output.
-    
+
     Args:
         versions: List of version strings
-        
+
     Returns:
         Tuple of (matrix_json, channels_json, nothing_to_build_count)
         where matrix_json and channels_json are compact JSON strings
     """
     if not versions:
         return '{"matrix":{}}', '{"channels":{}}', 0
-    
+
     # Sort versions newest first using our version_sort_key
     sorted_versions = sorted(versions, key=version_sort_key, reverse=True)
-    
+
     # Build the matrix: map each version to an empty object (to be filled later)
     matrix = {version: {} for version in sorted_versions}
-    
+
     # For now, we'll classify all as stable (this will be refined in discover_core)
     stable_versions = sorted_versions
     experimental_versions = []
-    
-    channels = {
-        "stable": stable_versions,
-        "beta": experimental_versions
-    }
-    
+
+    channels = {"stable": stable_versions, "beta": experimental_versions}
+
     # nothing_to_build is 0 unless we have special handling
     nothing_to_build = 0
-    
+
     import json
+
     # Use compact separators as specified in the plan
     matrix_json = json.dumps({"matrix": matrix}, separators=(",", ":"))
     channels_json = json.dumps({"channels": channels}, separators=(",", ":"))
-    
+
     return matrix_json, channels_json, nothing_to_build
 
 
-def classify_versions(stable: list[str], experimental: list[str]) -> tuple[list[str], list[str]]:
+def classify_versions(
+    stable: list[str], experimental: list[str]
+) -> tuple[list[str], list[str]]:
     """Classify versions into stable and experimental lists.
-    
+
     Args:
         stable: List of versions that are stable
         experimental: List of versions that are experimental
-        
+
     Returns:
         Tuple of (stable_versions, experimental_versions)
         This is essentially a pass-through function that validates inputs
@@ -494,11 +567,16 @@ def classify_versions(stable: list[str], experimental: list[str]) -> tuple[list[
     return stable, experimental
 
 
-def discover_core(versions_raw: str, stable_raw: str, exclude: str,
-                  state: dict | None, patches_ver: str,
-                  bundle_patch_names: list[str]) -> dict:
+def discover_core(
+    versions_raw: str,
+    stable_raw: str,
+    exclude: str,
+    state: dict | None,
+    patches_ver: str,
+    bundle_patch_names: list[str],
+) -> dict:
     """Core discovery logic that processes versions and state.
-    
+
     Args:
         versions_raw: Raw versions string from list-versions -x
         stable_raw: Raw stable versions string from list-versions
@@ -506,26 +584,34 @@ def discover_core(versions_raw: str, stable_raw: str, exclude: str,
         state: Current state dictionary or None
         patches_ver: Current patches version
         bundle_patch_names: List of bundle patch names
-        
+
     Returns:
         DiscoverResult dictionary with matrix, versions, channels, reused,
         nothing_to_build, expected_patches, and all_versions
     """
     # Parse the input strings into lists
-    versions_list = [v.strip() for v in versions_raw.split("\n") if v.strip()] if versions_raw else []
-    stable_list = [v.strip() for v in stable_raw.split("\n") if v.strip()] if stable_raw else []
-    exclude_list = [v.strip() for v in exclude.split("\n") if v.strip()] if exclude else []
-    
+    versions_list = (
+        [v.strip() for v in versions_raw.split("\n") if v.strip()]
+        if versions_raw
+        else []
+    )
+    stable_list = (
+        [v.strip() for v in stable_raw.split("\n") if v.strip()] if stable_raw else []
+    )
+    exclude_list = (
+        [v.strip() for v in exclude.split("\n") if v.strip()] if exclude else []
+    )
+
     # Filter out excluded versions from versions_list
     versions_filtered = [v for v in versions_list if v not in exclude_list]
-    
+
     # For now, we'll implement a simplified version
     # In a full implementation, this would do more complex logic involving
     # state comparison, bundle patch names, etc.
-    
+
     # Use build_matrix to get the basic matrix and channels
     matrix_json, channels_json, nothing_to_build = build_matrix(versions_filtered)
-    
+
     # For now, we'll return simplified results
     # A full implementation would populate these properly
     result = {
@@ -535,18 +621,20 @@ def discover_core(versions_raw: str, stable_raw: str, exclude: str,
         "reused": json.dumps([], separators=(",", ":")),  # No reused versions for now
         "nothing_to_build": nothing_to_build,
         "expected_patches": json.dumps([], separators=(",", ":")),  # To be implemented
-        "all_versions": json.dumps(versions_list, separators=(",", ":"))  # Original list
+        "all_versions": json.dumps(
+            versions_list, separators=(",", ":")
+        ),  # Original list
     }
-    
+
     return result
 
 
 def build_expected_patches(bundle_names: list[str]) -> list[str]:
     """Build expected patches list from bundle names, deduplicating and adding forced patches.
-    
+
     Args:
         bundle_names: List of bundle patch names
-        
+
     Returns:
         List of expected patch names with duplicates removed and forced patches added
     """
@@ -557,60 +645,63 @@ def build_expected_patches(bundle_names: list[str]) -> list[str]:
         if name not in seen:
             seen.add(name)
             deduped.append(name)
-    
+
     # For now, we don't have forced patches configured, so we just return the deduped list
     # In a full implementation, we would add forced patches like:
     # forced_patches = ["Change installer source", "Disable Play store updates"]
     # for patch in forced_patches:
     #     if patch not in seen:
     #         deduped.append(patch)
-    
+
     return deduped
 
 
 def gate_rebuild(last_state: dict | None, sources: dict, covered: list[str]) -> int:
     """Determine if a rebuild is needed based on state changes.
-    
+
     Args:
         last_state: Previous state dictionary or None
         sources: Current sources dictionary
         covered: List of patch names that have been covered/applied
-        
+
     Returns:
         1 if rebuild is needed, 0 if not
     """
     # If there's no last state, we always need to rebuild
     if last_state is None:
         return 1
-    
+
     # Check if the sources have changed
     # For now, we'll do a simple comparison
     # In a full implementation, this would compare the relevant parts of the state
     if last_state != sources:
         return 1
-    
+
     # Check if covered patches have changed
     # This would compare the covered patches list with what's in last_state
     # For now, we'll return 0 (no rebuild needed) if we got this far
     # A full implementation would do proper comparison
-    
+
     return 0
 
 
 def _run_java(cmd: list[str], timeout: int = 600, capture_output: bool = False) -> str:
     """Run a Java command and return its output.
-    
+
     Args:
         cmd: Command and arguments as list of strings
         timeout: Timeout in seconds
         capture_output: Whether to capture and return output
-        
+
     Returns:
         Command output as string if capture_output is True, otherwise empty string
     """
     try:
         import subprocess
-        result = subprocess.run(cmd, timeout=timeout, capture_output=capture_output, text=True, check=False)
+
+        result = subprocess.run(
+            cmd, timeout=timeout, capture_output=capture_output, text=True, check=False
+        )
         if capture_output:
             return result.stdout.strip()
         return ""
@@ -621,18 +712,21 @@ def _run_java(cmd: list[str], timeout: int = 600, capture_output: bool = False) 
 
 def _run_bun(cmd: list[str], timeout: int = 1200, capture_output: bool = False) -> str:
     """Run a Bun command and return its output.
-    
+
     Args:
         cmd: Command and arguments as list of strings
         timeout: Timeout in seconds
         capture_output: Whether to capture and return output
-        
+
     Returns:
         Command output as string if capture_output is True, otherwise empty string
     """
     try:
         import subprocess
-        result = subprocess.run(cmd, timeout=timeout, capture_output=capture_output, text=True, check=False)
+
+        result = subprocess.run(
+            cmd, timeout=timeout, capture_output=capture_output, text=True, check=False
+        )
         if capture_output:
             return result.stdout.strip()
         return ""
@@ -643,17 +737,20 @@ def _run_bun(cmd: list[str], timeout: int = 1200, capture_output: bool = False) 
 
 def _run_gh(cmd: list[str], capture_output: bool = False) -> str:
     """Run a GitHub CLI command and return its output.
-    
+
     Args:
         cmd: Command and arguments as list of strings
         capture_output: Whether to capture and return output
-        
+
     Returns:
         Command output as string if capture_output is True, otherwise empty string
     """
     try:
         import subprocess
-        result = subprocess.run(cmd, capture_output=capture_output, text=True, check=False)
+
+        result = subprocess.run(
+            cmd, capture_output=capture_output, text=True, check=False
+        )
         if capture_output:
             return result.stdout.strip()
         return ""
@@ -665,10 +762,16 @@ def _run_gh(cmd: list[str], capture_output: bool = False) -> str:
 def cmd_fetch_toolchain(args) -> int:
     """Handle the fetch-toolchain subcommand."""
     try:
-        result = fetch_toolchain(args.owner, args.patches_repo, args.desktop_repo, args.token)
-        # Write outputs to $GITHUB_OUTPUT format
-        print(f"PATCHES_VER={result['patches_ver']}")
-        print(f"DESKTOP_VER={result['desktop_ver']}")
+        result = fetch_toolchain(
+            args.owner, args.patches_repo, args.desktop_repo, args.token
+        )
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            with open(github_output, "a") as f:
+                f.write(f"patches_ver={result['patches_ver']}\n")
+                f.write(f"desktop_ver={result['desktop_ver']}\n")
+        print(f"patches: patches-{result['patches_ver']}.mpp")
+        print(f"patcher: morphe-desktop-{result['desktop_ver']}-all.jar")
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to fetch toolchain: {e}\n")
@@ -678,49 +781,43 @@ def cmd_fetch_toolchain(args) -> int:
 def cmd_discover(args) -> int:
     """Handle the discover subcommand."""
     try:
-        # Parse the inputs
         versions_raw = args.versions_raw or ""
         stable_raw = args.stable_raw or ""
         exclude = args.exclude or ""
-        
-        # Handle state if provided
+
         state = None
         if args.state:
             try:
-                with open(args.state, 'r') as f:
+                with open(args.state, "r") as f:
                     state = json.load(f)
             except Exception as e:
                 sys.stderr.write(f"::warning::Failed to read state file: {e}\n")
-        
+
         result = discover_core(
-            versions_raw, stable_raw, exclude,
-            state, args.patches_ver, args.bundle_patch_names
+            versions_raw,
+            stable_raw,
+            exclude,
+            state,
+            args.patches_ver,
+            args.bundle_patch_names,
         )
-        
-        # Write outputs to $GITHUB_OUTPUT format
-        for key, value in result.items():
-            if isinstance(value, str):
-                print(f"{key.upper()}={value}")
-            else:
-                print(f"{key.upper()}={value}")
-        
-        # Print the covering message
+
+        github_output = os.environ.get("GITHUB_OUTPUT")
+        if github_output:
+            with open(github_output, "a") as f:
+                for key, value in result.items():
+                    f.write(f"{key}={value}\n")
+
+        versions_list = json.loads(result.get("versions", "[]"))
+        reused_list = json.loads(result.get("reused", "[]"))
         nothing_to_build = result.get("nothing_to_build", 0)
         if nothing_to_build > 0:
-            print(f"covering {nothing_to_build} version(s) (reused=...), nothing to build")
+            print(f"covering 0 version(s) (reused=0), nothing to build")
         else:
-            # Calculate covered count from result if available
-            reused_str = result.get("reused", "[]")
-            try:
-                reused_list = json.loads(reused_str)
-                reused_count = len(reused_list)
-                if reused_count > 0:
-                    print(f"covering {len(json.loads(result['versions']))} version(s) (reused={reused_count})")
-                else:
-                    print(f"covering {len(json.loads(result['versions']))} version(s) (reused=0)")
-            except:
-                print(f"covering {len(json.loads(result['versions']))} version(s) (reused=0)")
-        
+            print(
+                f"covering {len(versions_list)} version(s) (reused={len(reused_list)})"
+            )
+
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to discover: {e}\n")
@@ -732,11 +829,16 @@ def cmd_select_options(args) -> int:
     try:
         # Run the java options-create command
         cmd = [
-            "java", "-jar", "morphe-desktop.jar",
+            "java",
+            "-jar",
+            "morphe-desktop.jar",
             "options-create",
-            "-f", args.package,
-            "-o", "options.json",
-            "-p", args.patch_bundle
+            "-f",
+            args.package,
+            "-o",
+            "options.json",
+            "-p",
+            args.patch_bundle,
         ]
         output = _run_java(cmd, capture_output=True)
         if output:
@@ -773,25 +875,57 @@ def cmd_download_apk(args) -> int:
 def cmd_patch(args) -> int:
     """Handle the patch subcommand."""
     try:
+        in_apk = f"./download/youtube-{args.version}-{args.arch}.apk"
+        out_apk = f"./release/youtube-{args.version}-{args.arch}.apk"
+
         cmd = [
             "java",
             "-jar",
             "morphe-desktop.jar",
             "patch",
+            "-p",
+            "patches.mpp",
             "-e",
-            "patcher.mpp",
-            "-l",
-            args.version,
-            "-o",
-            "ship",
-            "-f",
-            "com.google.android.youtube",
-            "-a",
+            "Change installer source",
+            "-e",
+            "Disable Play Store updates",
+            "--options-file",
+            "./options.json",
+            "--striplibs",
             args.arch,
-            "--options",
-            "options.json",
+            "--out",
+            out_apk,
+            "-r",
+            "./result.json",
+            "--keystore",
+            "./src/keystore/morphe.keystore",
+            "--force",
+            "--continue-on-error",
+            in_apk,
         ]
         _run_java(cmd, capture_output=False)
+
+        # Extract applied and failed patch lists from result.json
+        result_path = pathlib.Path("./result.json")
+        if result_path.exists():
+            result = json.loads(result_path.read_text())
+            applied = result.get("appliedPatches", [])
+            failed = result.get("failedPatches", [])
+            applied_names = [
+                p["name"] for p in applied if isinstance(p, dict) and "name" in p
+            ]
+            failed_names = [
+                p.get("patch", {}).get("name", "")
+                for p in failed
+                if isinstance(p, dict)
+            ]
+            pathlib.Path(f"./applied-{args.version}.txt").write_text(
+                "\n".join(applied_names) + ("\n" if applied_names else "")
+            )
+            pathlib.Path(f"./failed-{args.version}.txt").write_text(
+                "\n".join(failed_names) + ("\n" if failed_names else "")
+            )
+
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to patch APK: {e}\n")
@@ -844,8 +978,9 @@ def youtube_state(records, patcher, package, sources_map):
     history is what lets the next run decide whether anything actually changed, so the
     record has to be built from what shipped rather than from what was attempted.
     """
-    ordered = sorted(records or [], key=lambda r: version_sort_key(r["version"]),
-                     reverse=True)
+    ordered = sorted(
+        records or [], key=lambda r: version_sort_key(r["version"]), reverse=True
+    )
     versions = [r["version"] for r in ordered]
     sources_out = {}
     for owner, src in sources_map.items():
@@ -901,11 +1036,12 @@ def state_put(repo_full, state_path, content_str, message, token=None):
         if attempt == 5:
             sys.stderr.write(
                 f"::error::could not commit {state_path} after 5 attempts: "
-                f"{put_resp.text}\n")
+                f"{put_resp.text}\n"
+            )
             sys.exit(1)
         sys.stderr.write(
-            f"contents PUT conflicted (attempt {attempt}), "
-            f"retrying on fresh sha\n")
+            f"contents PUT conflicted (attempt {attempt}), retrying on fresh sha\n"
+        )
         time.sleep(2 ** min(attempt, 4))
 
 
@@ -931,13 +1067,14 @@ def cmd_record_state(args) -> int:
         token = os.environ.get("GH_TOKEN")
         repo_full = os.environ.get("REPO_FULL", "rahaaatul/Morphed")
 
-        keep = json.loads(pathlib.Path(args.keep_in).read_text()) if args.keep_in else {}
+        keep = (
+            json.loads(pathlib.Path(args.keep_in).read_text()) if args.keep_in else {}
+        )
         versions = keep.get("versions", [])
         applied = keep.get("applied", [])
         failed = keep.get("failed", [])
         records = [
-            {"version": v, "applied": applied, "failed": failed}
-            for v in versions
+            {"version": v, "applied": applied, "failed": failed} for v in versions
         ]
         if not records:
             sys.stderr.write("Nothing shipped, leaving the state file alone\n")
@@ -946,7 +1083,13 @@ def cmd_record_state(args) -> int:
         record = youtube_state(records, patcher, package, sources_map)
         content_str = json.dumps(record, indent=2) + "\n"
 
-        state_put(repo_full, args.state_file, content_str, f"Record YouTube build, patcher {patcher}", token=token)
+        state_put(
+            repo_full,
+            args.state_file,
+            content_str,
+            f"Record YouTube build, patcher {patcher}",
+            token=token,
+        )
         sys.stderr.write(f"Committed {args.state_file}\n")
         return 0
     except Exception as e:
@@ -979,7 +1122,9 @@ def main() -> None:
     p_fetch.set_defaults(func=cmd_fetch_toolchain)
 
     # discover
-    p_discover = subparsers.add_parser("discover", help="Discover versions and build matrix")
+    p_discover = subparsers.add_parser(
+        "discover", help="Discover versions and build matrix"
+    )
     p_discover.add_argument("--versions-raw", default="")
     p_discover.add_argument("--stable-raw", default="")
     p_discover.add_argument("--exclude", default="")
@@ -989,13 +1134,17 @@ def main() -> None:
     p_discover.set_defaults(func=cmd_discover)
 
     # select-options
-    p_select = subparsers.add_parser("select-options", help="Select options for building")
+    p_select = subparsers.add_parser(
+        "select-options", help="Select options for building"
+    )
     p_select.add_argument("--package", required=True)
     p_select.add_argument("--patch-bundle", required=True)
     p_select.set_defaults(func=cmd_select_options)
 
     # download-apk
-    p_download = subparsers.add_parser("download-apk", help="Download APK via APKMirror")
+    p_download = subparsers.add_parser(
+        "download-apk", help="Download APK via APKMirror"
+    )
     p_download.add_argument("--version", required=True)
     p_download.set_defaults(func=cmd_download_apk)
 
@@ -1006,7 +1155,9 @@ def main() -> None:
     p_patch.set_defaults(func=cmd_patch)
 
     # cleanup-artifacts
-    p_cleanup = subparsers.add_parser("cleanup-artifacts", help="Clean up run artifacts")
+    p_cleanup = subparsers.add_parser(
+        "cleanup-artifacts", help="Clean up run artifacts"
+    )
     p_cleanup.add_argument("--repo-full", required=True)
     p_cleanup.add_argument("--run-id", required=True)
     p_cleanup.set_defaults(func=cmd_cleanup_artifacts)
@@ -1021,5 +1172,5 @@ def main() -> None:
     return args.func(args)
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

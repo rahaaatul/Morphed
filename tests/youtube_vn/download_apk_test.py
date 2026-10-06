@@ -18,8 +18,12 @@ class DownloadApkTest(unittest.TestCase):
         args = MagicMock()
         args.version = "19.0.0"
 
-        with patch.object(YouTube_vn, "_run_bun", return_value="") as mock_bun, \
-             patch("pathlib.Path.glob", return_value=[pathlib.Path("download/test.apk")]):
+        with (
+            patch.object(YouTube_vn, "_run_bun", return_value="") as mock_bun,
+            patch(
+                "pathlib.Path.glob", return_value=[pathlib.Path("download/test.apk")]
+            ),
+        ):
             result = YouTube_vn.cmd_download_apk(args)
             self.assertEqual(result, 0)
             mock_bun.assert_called_once()
@@ -37,8 +41,10 @@ class DownloadApkTest(unittest.TestCase):
         args.version = "19.0.0"
 
         # Mock _run_bun to return empty output (no APK found)
-        with patch.object(YouTube_vn, "_run_bun", return_value=""), \
-             patch("pathlib.Path.glob", return_value=[]):
+        with (
+            patch.object(YouTube_vn, "_run_bun", return_value=""),
+            patch("pathlib.Path.glob", return_value=[]),
+        ):
             result = YouTube_vn.cmd_download_apk(args)
             self.assertEqual(result, 1)
 
@@ -59,18 +65,24 @@ class PatchTest(unittest.TestCase):
             self.assertIn("-jar", cmd)
             self.assertIn("morphe-desktop.jar", cmd)
             self.assertIn("patch", cmd)
+            self.assertIn("-p", cmd)
+            self.assertIn("patches.mpp", cmd)
             self.assertIn("-e", cmd)
-            self.assertIn("patcher.mpp", cmd)
-            self.assertIn("-l", cmd)
-            self.assertIn("19.0.0", cmd)
-            self.assertIn("-o", cmd)
-            self.assertIn("ship", cmd)
-            self.assertIn("-f", cmd)
-            self.assertIn("com.google.android.youtube", cmd)
-            self.assertIn("-a", cmd)
+            self.assertIn("Change installer source", cmd)
+            self.assertIn("Disable Play Store updates", cmd)
+            self.assertIn("--options-file", cmd)
+            self.assertIn("./options.json", cmd)
+            self.assertIn("--striplibs", cmd)
             self.assertIn("arm64-v8a", cmd)
-            self.assertIn("--options", cmd)
-            self.assertIn("options.json", cmd)
+            self.assertIn("--out", cmd)
+            self.assertIn("./release/youtube-19.0.0-arm64-v8a.apk", cmd)
+            self.assertIn("-r", cmd)
+            self.assertIn("./result.json", cmd)
+            self.assertIn("--keystore", cmd)
+            self.assertIn("./src/keystore/morphe.keystore", cmd)
+            self.assertIn("--force", cmd)
+            self.assertIn("--continue-on-error", cmd)
+            self.assertIn("./download/youtube-19.0.0-arm64-v8a.apk", cmd)
 
     def test_cleanup_artifacts_runs_gh(self):
         # Test that cmd_cleanup_artifacts invokes _run_gh with the correct command
@@ -78,7 +90,9 @@ class PatchTest(unittest.TestCase):
         args.repo_full = "rahaaatul/Morphed"
         args.run_id = "12345"
 
-        with patch.object(YouTube_vn, "_run_gh", return_value='{"artifacts":[{"id":1,"name":"test"}]}') as mock_gh:
+        with patch.object(
+            YouTube_vn, "_run_gh", return_value='{"artifacts":[{"id":1,"name":"test"}]}'
+        ) as mock_gh:
             result = YouTube_vn.cmd_cleanup_artifacts(args)
             self.assertEqual(result, 0)
             mock_gh.assert_called()
@@ -89,6 +103,5 @@ class PatchTest(unittest.TestCase):
             self.assertIn("artifacts", cmd_str)
             self.assertIn("12345", cmd_str)
 
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     unittest.main()

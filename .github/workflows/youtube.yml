@@ -67,7 +67,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          python3 .github/scripts/youtube.py cmd_fetch_toolchain \
+          python3 .github/scripts/youtube.py fetch-toolchain \
             --owner "$MORPHE_OWNER" \
             --patches-repo "$MORPHE_PATCHES_REPO" \
             --desktop-repo "$MORPHE_DESKTOP_REPO" \
@@ -85,7 +85,7 @@ jobs:
           java -jar morphe-desktop.jar list-versions -f "$PACKAGE" --patches patches.mpp \
             | tee versions-stable.txt
 
-          python3 .github/scripts/youtube.py cmd_discover \
+          python3 .github/scripts/youtube.py discover \
             --versions-raw "$(cat versions-raw.txt)" \
             --stable-raw "$(cat versions-stable.txt)" \
             --exclude "$EXCLUDE_VERSIONS" \
@@ -228,7 +228,7 @@ jobs:
           set -euo pipefail
           mkdir -p download release "$CACHE_DIR"
 
-          python3 .github/scripts/youtube.py cmd_download_apk \
+          python3 .github/scripts/youtube.py download-apk \
             --version "${{ matrix.version }}"
 
           src="./download/${APP_SLUG}-${{ matrix.version }}-${ARCH}.apk"
@@ -247,7 +247,7 @@ jobs:
         id: patch
         run: |
           set -euo pipefail
-          python3 .github/scripts/youtube.py cmd_patch \
+          python3 .github/scripts/youtube.py patch \
             --version "${{ matrix.version }}" \
             --arch "$ARCH"
 
@@ -413,7 +413,7 @@ jobs:
           # Write expected patches as a JSON file for the render-notes subcommand
           printf '%s\n' "$(cat applied-final.txt | jq -Rsc 'split("\n") | map(select(length > 0))')" > expected.json
 
-          python3 .github/scripts/youtube.py cmd_render_notes \
+          python3 .github/scripts/youtube.py render-notes \
             --release-dir release \
             --applied-dir applied \
             --failed-dir failed \
@@ -460,7 +460,7 @@ jobs:
             "$(cat applied-final.txt | jq -Rsc 'split("\n") | map(select(length > 0))')" \
             "$(cut -f2 failed-final.txt 2>/dev/null | sort -u | jq -Rsc 'split("\n") | map(select(length > 0))' || echo '[]')" > keep.json
 
-          python3 .github/scripts/youtube.py cmd_record_state \
+          python3 .github/scripts/youtube.py record-state \
             --keep-in keep.json \
             --state-file "$STATE_FILE"
 
@@ -471,7 +471,7 @@ jobs:
         run: |
           set -uo pipefail
 
-          python3 .github/scripts/youtube.py cmd_cleanup_artifacts \
+          python3 .github/scripts/youtube.py cleanup-artifacts \
             --repo-full "$REPO_FULL" \
             --run-id "${{ github.run_id }}"
 
