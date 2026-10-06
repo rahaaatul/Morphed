@@ -38,7 +38,7 @@ list_versions() {
   java -jar morphe-desktop.jar list-versions -x -f "$PACKAGE" --patches patches.mpp | tee versions-raw.txt
   java -jar morphe-desktop.jar list-versions    -f "$PACKAGE" --patches patches.mpp | tee versions-stable.txt
   java -jar morphe-desktop.jar list-patches -f "$PACKAGE" --patches patches.mpp \
-    | grep -E '^[+-]' | sed 's/^[+-] //' > patch-names.txt
+    | awk '/^Name: / {name=$2; next} /^Enabled: / && $2 == "true" && name {print name; name=""}' > patch-names.txt
 }
 
 download_apk() {
