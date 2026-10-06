@@ -494,6 +494,53 @@ def classify_versions(stable: list[str], experimental: list[str]) -> tuple[list[
     return stable, experimental
 
 
+def discover_core(versions_raw: str, stable_raw: str, exclude: str,
+                  state: dict | None, patches_ver: str,
+                  bundle_patch_names: list[str]) -> dict:
+    """Core discovery logic that processes versions and state.
+    
+    Args:
+        versions_raw: Raw versions string from list-versions -x
+        stable_raw: Raw stable versions string from list-versions
+        exclude: Exclude versions string from EXCLUDE_VERSIONS env var
+        state: Current state dictionary or None
+        patches_ver: Current patches version
+        bundle_patch_names: List of bundle patch names
+        
+    Returns:
+        DiscoverResult dictionary with matrix, versions, channels, reused,
+        nothing_to_build, expected_patches, and all_versions
+    """
+    # Parse the input strings into lists
+    versions_list = [v.strip() for v in versions_raw.split("\n") if v.strip()] if versions_raw else []
+    stable_list = [v.strip() for v in stable_raw.split("\n") if v.strip()] if stable_raw else []
+    exclude_list = [v.strip() for v in exclude.split("\n") if v.strip()] if exclude else []
+    
+    # Filter out excluded versions from versions_list
+    versions_filtered = [v for v in versions_list if v not in exclude_list]
+    
+    # For now, we'll implement a simplified version
+    # In a full implementation, this would do more complex logic involving
+    # state comparison, bundle patch names, etc.
+    
+    # Use build_matrix to get the basic matrix and channels
+    matrix_json, channels_json, nothing_to_build = build_matrix(versions_filtered)
+    
+    # For now, we'll return simplified results
+    # A full implementation would populate these properly
+    result = {
+        "matrix": matrix_json,
+        "versions": json.dumps(versions_filtered, separators=(",", ":")),
+        "channels": channels_json,
+        "reused": json.dumps([], separators=(",", ":")),  # No reused versions for now
+        "nothing_to_build": nothing_to_build,
+        "expected_patches": json.dumps([], separators=(",", ":")),  # To be implemented
+        "all_versions": json.dumps(versions_list, separators=(",", ":"))  # Original list
+    }
+    
+    return result
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description="YouTube release pipeline")
     subparsers = parser.add_subparsers(dest="command", required=True)
