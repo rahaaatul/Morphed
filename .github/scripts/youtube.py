@@ -333,26 +333,14 @@ def build_matrix(versions: list[str]) -> tuple[str, str, int]:
         where matrix_json and channels_json are compact JSON strings
     """
     if not versions:
-        return '{"matrix":{}}', '{"channels":{}}', 0
+        return '{"matrix":{"version":["noop"]}}', '{"channels":{"stable":[],"beta":[]}}', 1
 
-    # Sort versions newest first using our version_sort_key
     sorted_versions = sorted(versions, key=version_sort_key, reverse=True)
 
-    # Build the matrix: map each version to an empty object (to be filled later)
-    matrix = {version: {} for version in sorted_versions}
-
-    # For now, we'll classify all as stable (this will be refined in discover_core)
-    stable_versions = sorted_versions
-    experimental_versions = []
-
-    channels = {"stable": stable_versions, "beta": experimental_versions}
-
-    # nothing_to_build is 0 unless we have special handling
+    matrix = {"version": sorted_versions, "noop": False}
+    channels = {"stable": sorted_versions, "beta": []}
     nothing_to_build = 0
 
-    import json
-
-    # Use compact separators as specified in the plan
     matrix_json = json.dumps({"matrix": matrix}, separators=(",", ":"))
     channels_json = json.dumps({"channels": channels}, separators=(",", ":"))
 
