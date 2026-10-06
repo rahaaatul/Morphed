@@ -15,7 +15,10 @@ import os
 import pathlib
 import re
 import sys
-from typing import List, Tuple
+import time
+from typing import List, Tuple, Dict, Optional
+
+# requests will be imported inside functions that need it to avoid hard dependency for pure functions
 
 
 def version_sort_key(version: str) -> Tuple[int, ...]:
@@ -294,6 +297,146 @@ def cmd_render_notes(args) -> int:
         return 1
 
     return 0
+
+
+def fetch_toolchain(owner: str, patches_repo: str, desktop_repo: str,
+                    token: str) -> dict:
+    """Fetch the latest versions of patches and desktop toolchain.
+    Returns {"patches_ver": str, "desktop_ver": str}.
+    """
+    try:
+        import requests
+    except ImportError:
+        sys.stderr.write("::warning::requests module not available, cannot fetch toolchain\n")
+        return {"patches_ver": "", "desktop_ver": ""}
+    
+    # Fetch patches
+    patches_url = f"https://api.github.com/repos/{owner}/{patches_repo}/releases?per_page=100"
+    # Fetch desktop
+    desktop_url = f"https://api.github.com/repos/{owner}/{desktop_repo}/releases?per_page=100"
+    
+    session = requests.Session()
+    # We'll use a simple retry loop for each request
+    max_attempts = 3
+    backoff_factor = 1
+    patches_ver = ""
+    desktop_ver = ""
+    
+    # Helper function to attempt a request and return the response or None
+    def fetch_url(url):
+        for attempt in range(max_attempts):
+            try:
+                resp = session.get(url, timeout=(10, 60))
+                if resp.status_code == 200:
+                    return resp
+                else:
+                    if attempt < max_attempts - 1:
+                        sys.stderr.write(f"::warning::Attempt {attempt+1} failed with status {resp.status_code}, retrying...\n")
+                        time.sleep(backoff_factor * (2 ** attempt))  # exponential backoff
+                    else:
+                        sys.stderr.write(f"::warning::All {max_attempts} attempts failed. Last status: {resp.status_code}\n")
+            except Exception as e:
+                if attempt < max_attempts - 1:
+                    sys.stderr.write(f"::warning::Attempt {attempt+1} failed with exception: {e}, retrying...\n")
+                    time.sleep(backoff_factor * (2 ** attempt))
+                else:
+                    sys.stderr.write(f"::warning::All {max_attempts} attempts failed. Last exception: {e}\n")
+        return None
+    
+    # Get patches version
+    patches_resp = fetch_url(patches_url)
+    if patches_resp is not None:
+        try:
+            patches_data = patches_resp.json()
+            # Filter out drafts
+            patches_releases = [r for r in patches_data if not r.get("draft", True)]
+            if not patches_releases:
+                patches_ver = ""
+            else:
+                # Sort by published_at descending
+                patches_releases.sort(key=lambda r: r["published_at"], reverse=True)
+                # Prefer prerelease
+                for rel in patches_releases:
+                    if rel.get("prerelease", False):
+                        # Extract version from asset name
+                        assets = rel.get("assets", [])
+                        if assets:
+                            # Find the .mpp asset
+                            mpp_asset = next((a for a in assets if a.get("name", "").endswith(".mpp")), None)
+                            if mpp_asset:
+                                name = mpp_asset["name"]
+                                # Expected format: patches-<version>.mpp
+                                if name.startswith("patches-") and name.endswith(".mpp"):
+                                    patches_ver = name[8:-4]  # strip "patches-" and ".mpp"
+                                else:
+                                    patches_ver = ""
+                                break
+                if not patches_ver:
+                    # Fallback to latest stable
+                    rel = patches_releases[0]
+                    assets = rel.get("assets", [])
+                    if assets:
+                        mpp_asset = next((a for a in assets if a.get("name", "").endswith(".mpp")), None)
+                        if mpp_asset:
+                            name = mpp_asset["name"]
+                            if name.startswith("patches-") and name.endswith(".mpp"):
+                                patches_ver = name[8:-4]
+                            else:
+                                patches_ver = ""
+        except Exception as e:
+            sys.stderr.write(f"::warning::Error processing patches data: {e}\n")
+            patches_ver = ""
+    
+    # Get desktop version
+    desktop_resp = fetch_url(desktop_url)
+    if desktop_resp is not None:
+        try:
+            desktop_data = desktop_resp.json()
+            # Filter out drafts
+            desktop_releases = [r for r in desktop_data if not r.get("draft", True)]
+            if not desktop_releases:
+                desktop_ver = ""
+            else:
+                # Sort by published_at descending
+                desktop_releases.sort(key=lambda r: r["published_at"], reverse=True)
+                # Prefer prerelease
+                for rel in desktop_releases:
+                    if rel.get("prerelease", False):
+                        # Extract version from asset name
+                        assets = rel.get("assets", [])
+                        if assets:
+                            # Find the .jar asset
+                            jar_asset = next((a for a in assets if a.get("name", "").endswith(".jar")), None)
+                            if jar_asset:
+                                name = jar_asset["name"]
+                                # Expected format: morphe-desktop-<version>-all.jar or morphe-desktop-<version>.jar
+                                if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
+                                    desktop_ver = name[17:-10]  # strip "morphe-desktop-" and "-all.jar"
+                                elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
+                                    desktop_ver = name[17:-4]  # strip "morphe-desktop-" and ".jar"
+                                else:
+                                    desktop_ver = ""
+                                break
+                if not desktop_ver:
+                    # Fallback to latest stable
+                    rel = desktop_releases[0]
+                    assets = rel.get("assets", [])
+                    if assets:
+                        jar_asset = next((a for a in assets if a.get("name", "").endswith(".jar")), None)
+                        if jar_asset:
+                            name = jar_asset["name"]
+                            if name.startswith("morphe-desktop-") and name.endswith("-all.jar"):
+                                desktop_ver = name[17:-10]
+                            elif name.startswith("morphe-desktop-") and name.endswith(".jar"):
+                                desktop_ver = name[17:-4]
+                            else:
+                                desktop_ver = ""
+        except Exception as e:
+            sys.stderr.write(f"::warning::Error processing desktop data: {e}\n")
+            desktop_ver = ""
+    
+    session.close()
+    return {"patches_ver": patches_ver, "desktop_ver": desktop_ver}
 
 
 def main() -> None:
