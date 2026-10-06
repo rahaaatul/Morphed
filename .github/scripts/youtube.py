@@ -322,30 +322,45 @@ def cmd_render_notes(args) -> int:
     return 0
 
 
-def build_matrix(versions: list[str]) -> tuple[str, str, int]:
+def build_matrix(versions: list[str], stable: list[str], state_versions: list[str]) -> tuple[str, str, str, int]:
     """Build the versions matrix string for discover output.
 
     Args:
-        versions: List of version strings
+        versions: List of all version strings (raw, already parsed)
+        stable: List of versions that are Stable channel
+        state_versions: List of versions already built and recorded in state
 
     Returns:
-        Tuple of (matrix_json, channels_json, nothing_to_build_count)
-        where matrix_json and channels_json are compact JSON strings
+        Tuple of (matrix_json, channels_json, reused_json, nothing_to_build_count)
+        where matrix_json and channels_json and reused_json are compact JSON strings
     """
-    if not versions:
-        return '{"include":[{"noop":true}]}', '{"channels":{"stable":[],"beta":[]}}', 1
+    stable_set = set(stable)
 
-    sorted_versions = sorted(versions, key=version_sort_key, reverse=True)
+    to_build = []
+    reused = []
+    channels = {"Stable": [], "Beta": []}
 
-    entries = ",".join(f'{{"version":"{v}","channel":"Stable"}}' for v in sorted_versions)
+    for v in sorted(versions, key=version_sort_key, reverse=True):
+        if v in state_versions:
+            reused.append(v)
+            continue
+        to_build.append(v)
+        channel = "Stable" if v in stable_set else "Beta"
+        channels[channel].append(v)
+
+    if not to_build:
+        return '{"include":[{"noop":true}]}', json.dumps({"channels":{"Stable":[],"Beta":[]}},separators=(",",":")), json.dumps([],separators=(",",":")), 1
+
+    entries = ",".join(
+        f'{{"version":"{v}","channel":"{"Stable" if v in stable_set else "Beta"}"}}'
+        for v in to_build
+    )
     matrix = '{"include":[' + entries + "]}"
-    channels = {"stable": sorted_versions, "beta": []}
-    nothing_to_build = 0
-
     matrix_json = matrix
     channels_json = json.dumps({"channels": channels}, separators=(",", ":"))
+    reused_json = json.dumps(reused, separators=(",", ":"))
 
-    return matrix_json, channels_json, nothing_to_build
+    return matrix_json, channels_json, reused_json, 0
 
 
 def classify_versions(
@@ -398,8 +413,23 @@ def discover_core(
     # Filter out excluded versions from versions_list
     versions_filtered = [v for v in versions_list if v not in exclude_list]
 
+    # Get already-built versions from state
+    state_versions = []
+    if state:
+        try:
+            sources = state.get("source", {})
+            morpheapp = sources.get("MorpheApp", {})
+            patches = morpheapp.get("morphe-patches", {})
+            tag_data = patches.get(patches_ver, {})
+            youtube_data = tag_data.get("youtube", {})
+            state_versions = youtube_data.get("versions", []) or []
+        except Exception:
+            state_versions = []
+
     # Build the matrix and channels
-    matrix_json, channels_json, nothing_to_build = build_matrix(versions_filtered)
+    matrix_json, channels_json, reused_json, nothing_to_build = build_matrix(
+        versions_filtered, stable_list, state_versions
+    )
 
     # Build expected patches from bundle names
     expected_patches = build_expected_patches(bundle_patch_names)
@@ -408,7 +438,7 @@ def discover_core(
         "matrix": matrix_json,
         "versions": json.dumps(versions_filtered, separators=(",", ":")),
         "channels": channels_json,
-        "reused": json.dumps([], separators=(",", ":")),
+        "reused": reused_json,
         "nothing_to_build": nothing_to_build,
         "expected_patches": json.dumps(expected_patches, separators=(",", ":")),
         "all_versions": json.dumps(versions_list, separators=(",", ":")),
@@ -604,13 +634,26 @@ def cmd_discover(args) -> int:
             except Exception as e:
                 sys.stderr.write(f"::warning::Failed to read state file: {e}\n")
 
+        # Read bundle patch names from file if provided, otherwise use from args
+        bundle_patch_names = []
+        if args.bundle_patch_names_file:
+            try:
+                with open(args.bundle_patch_names_file, "r") as f:
+                    # Read lines and strip whitespace
+                    bundle_patch_names = [line.strip() for line in f if line.strip()]
+            except Exception as e:
+                sys.stderr.write(f"::warning::Failed to read bundle patch names file: {e}\n")
+        elif args.bundle_patch_names:
+            # Fallback to parsing from space-separated string (for backward compatibility)
+            bundle_patch_names = args.bundle_patch_names.split()
+
         result = discover_core(
             versions_raw,
             stable_raw,
             exclude,
             state,
             args.patches_ver,
-            args.bundle_patch_names,
+            bundle_patch_names,
         )
 
         github_output = os.environ.get("GITHUB_OUTPUT")
@@ -941,7 +984,8 @@ def main() -> None:
     p_discover.add_argument("--exclude", default="")
     p_discover.add_argument("--state", help="Path to state JSON file")
     p_discover.add_argument("--patches-ver", required=True)
-    p_discover.add_argument("--bundle-patch-names", required=True)
+    p_discover.add_argument("--bundle-patch-names", required=False)
+    p_discover.add_argument("--bundle-patch-names-file", required=False)
     p_discover.set_defaults(func=cmd_discover)
 
     # select-options
