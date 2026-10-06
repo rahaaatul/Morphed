@@ -105,15 +105,14 @@ jobs:
           echo "Stable targets:"
           echo "${stable:-<none>}"
 
-      - name: Generate options file
-        if: steps.versions.outputs.nothing_to_build != '1'
-        run: |
-          set -euo pipefail
-          java -jar morphe-desktop.jar options-create \
-            -f "$PACKAGE" -o options.json -p patches.mpp
-
-          echo "patch state:"
-          jq -r '.[0].patches | to_entries[] | select(.value.enabled == true) | .key' options.json | sort | tee enabled.txt | wc -l
+      - name: Upload patcher artifacts
+        uses: actions/upload-artifact@v7.0.1
+        with:
+          name: morphe-toolchain
+          path: |
+            patches.mpp
+            morphe-desktop.jar
+          retention-days: 1
 
       - name: Cache Morphe toolchain (permanent, input-only)
         # Bundles and the patcher jar are reused verbatim until their versions change.
