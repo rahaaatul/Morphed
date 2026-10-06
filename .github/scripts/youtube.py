@@ -333,15 +333,16 @@ def build_matrix(versions: list[str]) -> tuple[str, str, int]:
         where matrix_json and channels_json are compact JSON strings
     """
     if not versions:
-        return '{"matrix":{"version":["noop"]}}', '{"channels":{"stable":[],"beta":[]}}', 1
+        return '{"include":[{"noop":true}]}', '{"channels":{"stable":[],"beta":[]}}', 1
 
     sorted_versions = sorted(versions, key=version_sort_key, reverse=True)
 
-    matrix = {"version": sorted_versions, "noop": False}
+    entries = ",".join(f'{{"version":"{v}","channel":"Stable"}}' for v in sorted_versions)
+    matrix = '{"include":[' + entries + "]}"
     channels = {"stable": sorted_versions, "beta": []}
     nothing_to_build = 0
 
-    matrix_json = json.dumps({"matrix": matrix}, separators=(",", ":"))
+    matrix_json = matrix
     channels_json = json.dumps({"channels": channels}, separators=(",", ":"))
 
     return matrix_json, channels_json, nothing_to_build
