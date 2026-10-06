@@ -161,11 +161,9 @@ jobs:
             apk-cache-${{ env.APP_SLUG }}-
 
       - name: Drop cache for unsupported versions
+        env:
+          VERSIONS: ${{ needs.discover.outputs.versions }}
         run: |
-          set -euo pipefail
-          shopt -s nullglob
-          stale=(apk-cache/*)
-          shopt -u nullglob
           if [[ ${#stale[@]} -eq 0 ]]; then
             echo "No cached originals"
             exit 0
@@ -461,9 +459,3 @@ jobs:
           python3 .github/scripts/youtube.py cleanup-artifacts \
             --repo-full "$REPO_FULL" \
             --run-id "${{ github.run_id }}"
-
-          # Build keep.json for the record-state subcommand
-          printf '{"versions":%s,"applied":%s,"failed":%s}' \
-            "$(printf '%s\n' "${versions[@]}" | jq -Rsc 'split("\n") | map(select(length > 0))')" \
-            "$(cat applied-final.txt | jq -Rsc 'split("\n") | map(select(length > 0))')" \
-            "$(cut -f2 failed-final.txt 2>/dev/null | sort -u | jq -Rsc 'split("\n") | map(select(length > 0))' || echo '[]')" > keep.json
