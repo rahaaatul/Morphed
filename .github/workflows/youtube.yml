@@ -289,7 +289,10 @@ jobs:
   release:
     name: Publish release
     needs: [discover, patch]
-    if: always() && needs.discover.outputs.nothing_to_build != '1'
+    # always() so a matrix failure still reaches this job and reports itself. The two
+    # guards keep it from publishing: on a no-op discover pass, and when any patch leg
+    # failed. A partial matrix must never reach the release.
+    if: always() && needs.discover.outputs.nothing_to_build != '1' && needs.patch.result == 'success'
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout

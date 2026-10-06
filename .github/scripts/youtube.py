@@ -320,80 +320,6 @@ def cmd_render_notes(args) -> int:
     return 0
 
 
-def fetch_toolchain(
-    owner: str, patches_repo: str, desktop_repo: str, token: str
-) -> dict:
-    """Fetch the latest versions of patches and desktop toolchain.
-    Returns {"patches_ver": str, "desktop_ver": str}.
-    """
-    try:
-        import requests
-    except ImportError:
-        sys.stderr.write(
-            "::warning::requests module not available, cannot fetch toolchain\n"
-        )
-        return {"patches_ver": "", "desktop_ver": ""}
-
-    # Fetch patches (latest release, prereleases included)
-    patches_url = (
-        f"https://api.github.com/repos/{owner}/{patches_repo}/releases?per_page=5"
-    )
-    # Fetch desktop
-    desktop_url = (
-        f"https://api.github.com/repos/{owner}/{desktop_repo}/releases?per_page=5"
-    )
-
-    session = requests.Session()
-    max_attempts = 3
-    backoff_factor = 1
-    patches_ver = ""
-    desktop_ver = ""
-
-    def fetch_url(url):
-        for attempt in range(max_attempts):
-            try:
-                resp = session.get(url, timeout=(10, 60))
-                if resp.status_code == 200:
-                    return resp
-                if attempt < max_attempts - 1:
-                    sys.stderr.write(
-                        f"::warning::Attempt {attempt + 1} failed with status {resp.status_code}, retrying...\n"
-                    )
-                    time.sleep(backoff_factor * (2**attempt))
-            except Exception as e:
-                if attempt < max_attempts - 1:
-                    sys.stderr.write(
-                        f"::warning::Attempt {attempt + 1} failed: {e}, retrying...\n"
-                    )
-                    time.sleep(backoff_factor * (2**attempt))
-        return None
-
-    def pick_version(resp, prefix, suffix):
-        if resp is None:
-            return ""
-        try:
-            releases = [r for r in resp.json() if not r.get("draft", True)]
-            if not releases:
-                return ""
-            releases.sort(key=lambda r: r["published_at"], reverse=True)
-            for rel in releases:
-                for a in rel.get("assets", []):
-                    name = a.get("name", "")
-                    if name.startswith(prefix) and name.endswith(suffix):
-                        return name[len(prefix):-len(suffix)]
-                    if name.startswith(prefix) and name.endswith(".jar"):
-                        return name[len(prefix):-len(".jar")]
-            return ""
-        except Exception as e:
-            sys.stderr.write(f"::warning::Error processing release data: {e}\n")
-            return ""
-
-    patches_ver = pick_version(fetch_url(patches_url), "patches-", ".mpp")
-    desktop_ver = pick_version(fetch_url(desktop_url), "morphe-desktop-", "-all.jar")
-    session.close()
-    return {"patches_ver": patches_ver, "desktop_ver": desktop_ver}
-
-
 def build_matrix(versions: list[str]) -> tuple[str, str, int]:
     """Build the versions matrix string for discover output.
 
@@ -471,15 +397,9 @@ def discover_core(
         DiscoverResult dictionary with matrix, versions, channels, reused,
         nothing_to_build, expected_patches, and all_versions
     """
-    # Parse the input strings into lists
-    versions_list = (
-        [v.strip() for v in versions_raw.split("\n") if v.strip()]
-        if versions_raw
-        else []
-    )
-    stable_list = (
-        [v.strip() for v in stable_raw.split("\n") if v.strip()] if stable_raw else []
-    )
+    # Parse the input strings into lists, keeping only real version lines
+    versions_list = parse_version_lines(versions_raw) if versions_raw else []
+    stable_list = parse_version_lines(stable_raw) if stable_raw else []
     exclude_list = (
         [v.strip() for v in exclude.split("\n") if v.strip()] if exclude else []
     )
@@ -487,25 +407,20 @@ def discover_core(
     # Filter out excluded versions from versions_list
     versions_filtered = [v for v in versions_list if v not in exclude_list]
 
-    # For now, we'll implement a simplified version
-    # In a full implementation, this would do more complex logic involving
-    # state comparison, bundle patch names, etc.
-
-    # Use build_matrix to get the basic matrix and channels
+    # Build the matrix and channels
     matrix_json, channels_json, nothing_to_build = build_matrix(versions_filtered)
 
-    # For now, we'll return simplified results
-    # A full implementation would populate these properly
+    # Build expected patches from bundle names
+    expected_patches = build_expected_patches(bundle_patch_names)
+
     result = {
         "matrix": matrix_json,
         "versions": json.dumps(versions_filtered, separators=(",", ":")),
         "channels": channels_json,
-        "reused": json.dumps([], separators=(",", ":")),  # No reused versions for now
+        "reused": json.dumps([], separators=(",", ":")),
         "nothing_to_build": nothing_to_build,
-        "expected_patches": json.dumps([], separators=(",", ":")),  # To be implemented
-        "all_versions": json.dumps(
-            versions_list, separators=(",", ":")
-        ),  # Original list
+        "expected_patches": json.dumps(expected_patches, separators=(",", ":")),
+        "all_versions": json.dumps(versions_list, separators=(",", ":")),
     }
 
     return result
@@ -644,46 +559,17 @@ def _run_gh(cmd: list[str], capture_output: bool = False) -> str:
 def cmd_fetch_toolchain(args) -> int:
     """Handle the fetch-toolchain subcommand."""
     try:
+        sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+        from common import fetch_toolchain
+
         result = fetch_toolchain(
-            args.owner, args.patches_repo, args.desktop_repo, args.token
+            patches_repo=args.patches_repo,
+            desktop_repo=args.desktop_repo,
+            token=args.token,
+            dest=".",
         )
         patches_ver = result["patches_ver"]
         desktop_ver = result["desktop_ver"]
-        if not patches_ver:
-            sys.stderr.write("::error::No .mpp asset found\n")
-            return 1
-        if not desktop_ver:
-            sys.stderr.write("::error::No .jar asset found\n")
-            return 1
-
-        import requests
-
-        patches_url = (
-            f"https://github.com/{args.owner}/{args.patches_repo}"
-            f"/releases/download/v{patches_ver}/patches-{patches_ver}.mpp"
-        )
-        desktop_url = (
-            f"https://github.com/{args.owner}/{args.desktop_repo}"
-            f"/releases/download/v{desktop_ver}/morphe-desktop-{desktop_ver}-all.jar"
-        )
-        try:
-            r = requests.get(patches_url, timeout=(10, 300), stream=True)
-            r.raise_for_status()
-            with open("patches.mpp", "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        except Exception as e:
-            sys.stderr.write(f"::error::Failed to download patches.mpp: {e}\n")
-            return 1
-        try:
-            r = requests.get(desktop_url, timeout=(10, 300), stream=True)
-            r.raise_for_status()
-            with open("morphe-desktop.jar", "wb") as f:
-                for chunk in r.iter_content(chunk_size=8192):
-                    f.write(chunk)
-        except Exception as e:
-            sys.stderr.write(f"::error::Failed to download morphe-desktop.jar: {e}\n")
-            return 1
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
@@ -693,8 +579,9 @@ def cmd_fetch_toolchain(args) -> int:
         print(f"patches: patches-{patches_ver}.mpp")
         print(f"patcher: morphe-desktop-{desktop_ver}-all.jar")
         import subprocess
-
-        subprocess.run(["ls", "-la", "patches.mpp", "morphe-desktop.jar"], check=False)
+        subprocess.run(
+            ["ls", "-la", "patches.mpp", "morphe-desktop.jar"], check=False
+        )
         return 0
     except Exception as e:
         sys.stderr.write(f"::error::Failed to fetch toolchain: {e}\n")
