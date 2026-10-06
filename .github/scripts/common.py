@@ -121,29 +121,6 @@ def download_morphe_desktop(
     return asset.removeprefix("morphe-desktop-").removesuffix("-all.jar")
 
 
-def fetch_toolchain(
-    patches_repo: str = "MorpheApp/morphe-patches",
-    desktop_repo: str = "MorpheApp/morphe-desktop",
-    token: str | None = None,
-    dest: str = ".",
-) -> dict:
-    """Download the latest Morphe patches bundle and patcher jar.
-
-    Returns {"patches_ver": str, "desktop_ver": str} with the leading "v"
-    stripped from each tag, which is the form the state files store.
-    """
-    patches_ver = download_morphe_patches(patches_repo, dest, token)
-    desktop_ver = download_morphe_desktop(desktop_repo, dest, token)
-
-    for f in (f"patches-{patches_ver}.mpp", f"morphe-desktop-{desktop_ver}-all.jar"):
-        path = os.path.join(dest, f)
-        if not os.path.exists(path) or os.path.getsize(path) == 0:
-            sys.stderr.write(f"::error::{f} missing or empty\n")
-            raise RuntimeError(f"{f} missing or empty")
-
-    return {"patches_ver": patches_ver, "desktop_ver": desktop_ver}
-
-
 if __name__ == "__main__":
     import argparse
 
@@ -153,6 +130,7 @@ if __name__ == "__main__":
     p.add_argument("--token", default=os.environ.get("GH_TOKEN", ""))
     p.add_argument("--dest", default=".")
     args = p.parse_args()
-    result = fetch_toolchain(args.patches_repo, args.desktop_repo, args.token, args.dest)
-    print(f"patches_ver={result['patches_ver']}")
-    print(f"desktop_ver={result['desktop_ver']}")
+    patches_ver = download_morphe_patches(args.patches_repo, args.dest, args.token)
+    desktop_ver = download_morphe_desktop(args.desktop_repo, args.dest, args.token)
+    print(f"patches_ver={patches_ver}")
+    print(f"desktop_ver={desktop_ver}")

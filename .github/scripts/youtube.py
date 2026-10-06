@@ -560,16 +560,14 @@ def cmd_fetch_toolchain(args) -> int:
     """Handle the fetch-toolchain subcommand."""
     try:
         sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-        from common import fetch_toolchain
+        from common import download_morphe_patches, download_morphe_desktop
 
-        result = fetch_toolchain(
-            patches_repo=args.patches_repo,
-            desktop_repo=args.desktop_repo,
-            token=args.token,
-            dest=".",
+        patches_ver = download_morphe_patches(
+            args.patches_repo, dest=".", token=args.token
         )
-        patches_ver = result["patches_ver"]
-        desktop_ver = result["desktop_ver"]
+        desktop_ver = download_morphe_desktop(
+            args.desktop_repo, dest=".", token=args.token
+        )
 
         github_output = os.environ.get("GITHUB_OUTPUT")
         if github_output:
