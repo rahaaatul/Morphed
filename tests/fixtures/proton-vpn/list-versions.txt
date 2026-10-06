@@ -1,4 +1,0 @@
-Morphe Desktop list-versions -f ch.protonvpn.android --patches=doom-patches.mpp
-5.19.78.0
-5.19.72.0
-5.19.61.0

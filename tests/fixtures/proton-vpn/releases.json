@@ -1,8 +1,0 @@
-[
-  {"tag_name": "5.20.8.0", "draft": false, "prerelease": false, "published_at": "2026-09-10T00:00:00Z"},
-  {"tag_name": "5.20.39.0", "draft": false, "prerelease": false, "published_at": "2026-08-10T00:00:00Z"},
-  {"tag_name": "5.20.21.0-draft", "draft": true, "prerelease": false, "published_at": "2026-07-10T00:00:00Z"},
-  {"tag_name": "5.20.21.0", "draft": false, "prerelease": false, "published_at": "2026-07-09T00:00:00Z"},
-  {"tag_name": "5.19.99.0", "draft": false, "prerelease": true, "published_at": "2026-07-01T00:00:00Z"},
-  {"tag_name": "5.19.61.0", "draft": false, "prerelease": false, "published_at": "2026-06-10T00:00:00Z"}
-]

@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """Proton VPN release pipeline, one argparse subcommand per workflow step.
 
-Stdlib Python only: json, argparse, subprocess, pathlib, urllib, functools,
-os, re, time. External CLI tools (gh, java, curl) are invoked directly and are
-never wrapped here.
+Stdlib Python only. External CLI tools (gh, java, curl) are invoked directly as
+subprocesses and are never wrapped here, so nothing in this file exists only to
+call a CLI from a different language.
+
+Each subcommand reads the values the workflow owns from the environment, writes
+results back through $GITHUB_OUTPUT, and exits non-zero with a ::error:: message
+so a workflow step fails loudly rather than shipping a wrong APK or a wrong
+release body.
 """
 import argparse
 import base64
@@ -16,6 +21,8 @@ import time
 from pathlib import Path
 
 APP_SLUG = "protonvpn"
+# Defaults only. Every one of these is normally supplied by the workflow's env: block,
+# which stays the single source of truth for a value shared across steps.
 PACKAGE = "ch.protonvpn.android"
 RELEASE_TAG = "proton-vpn"
 REPO_FULL = "rahaaatul/Morphed"
@@ -60,6 +67,16 @@ def parse_list_patches(text):
 
 
 def choose_cover(versions, recommended, max_versions):
+    """Trim the release list down to the span users actually need.
+
+    Both patch bundles name one recommended version. We keep the newest of those
+    recommendations plus a margin beneath it, so a user who wants the newest
+    fully-patched build is never pushed further back than the margin, while a
+    bundle's older recommendation still falls inside the published range.
+
+    A recommendation that is not a published tag is a warning, not a failure: the
+    bundle may simply be ahead of the release list we just fetched.
+    """
     versions = list(versions)
     deepest = 0
     for rec in recommended:
@@ -74,6 +91,8 @@ def choose_cover(versions, recommended, max_versions):
         if idx > deepest:
             deepest = idx
     if deepest == 0:
+        # Neither recommendation resolved to a published tag. Three keeps the release
+        # useful rather than collapsing it to nothing on a bad fetch.
         deepest = 3
     want_n = deepest + 2
     if want_n > max_versions:
@@ -84,6 +103,8 @@ def choose_cover(versions, recommended, max_versions):
 def build_matrix(versions):
     versions = [v for v in versions if v]
     if not versions:
+        # A one-entry noop matrix keeps the downstream jobs' shape valid. Without it the
+        # matrix would be empty and the release would have nothing to publish.
         return '{"include":[{"noop":true}]}', "{}", 1
     entries = ",".join(f'{{"version":"{v}","channel":"Canary"}}' for v in versions)
     channels = ",".join(f'"{v}":"Canary"' for v in versions)
@@ -112,6 +133,12 @@ def build_recommended(doom_rec, hoo_rec):
 
 
 def build_expected_patches(source_lists, extra_text):
+    """Every patch name the release body will later expect to see accounted for.
+
+    Drawn from the two Proton-targeting bundles plus the forced-on extras. The body
+    iterates this list, so a name missing here disappears from the published matrix
+    instead of being reported as unapplied.
+    """
     all_names = []
     for src in source_lists:
         all_names.extend(name for name in src if name)
@@ -126,6 +153,9 @@ def build_expected_patches(source_lists, extra_text):
 
 
 _VERSION_RE = re.compile(r"\s*(\d+(?:\.\d+)+)")
+# Deliberately loose. `list-versions` prefixes entries with decorations we do not
+# care about, so we pull the first dotted number out of each line rather than trying
+# to model the exact output format, which upstream is free to change.
 
 
 def parse_version_lines(text):
@@ -148,6 +178,9 @@ def build_records(release_dir, applied_dir, failed_dir, arch):
         for kind, d in dirs.items():
             path = d / f"{kind}-{v}.txt"
             if not path.exists():
+                # Fatal on purpose. The body states per-patch status for every version,
+                # so a missing list means the run would publish a table that silently
+                # omits this version's outcome. Better to fail than to under-report.
                 sys.stderr.write(
                     f"::error::{kind}/{kind}-{v}.txt is missing, "
                     f"cannot describe {v} in the release body\n")
@@ -168,6 +201,12 @@ def build_records(release_dir, applied_dir, failed_dir, arch):
 
 
 def pick_anchor(records, expected):
+    """Newest version where every expected patch applied cleanly.
+
+    This is the version the release body tells users to install. It is derived from
+    the patch results rather than trusted from the bundles' own recommendation,
+    because a recommended version can still fail to apply cleanly in practice.
+    """
     ordered = sorted(records, key=lambda r: version_sort_key(r["version"]),
                      reverse=True)
     want = set(expected)
@@ -198,12 +237,15 @@ def _patch_block_lines(record, expected):
         "| :---: | :---: |",
     ]
     for p in expected:
+        # Three states, not two. A patch the patcher never reported on is not the same
+        # as one that tried and failed, and the body distinguishes them so a reader can
+        # tell "broken here" from "no longer offered".
         if p in applied:
             mark = "\U0001F7E2"
         elif p in failed:
             mark = "\U0001F534"
         else:
-            mark = "\u26AA"
+            mark = "⚪"
         lines.append(f"| {mark}|{p}|")
     lines += ["", "</details>", ""]
     return lines
@@ -221,6 +263,7 @@ def render_notes(records, expected, recommended, tools, stable, experimental, *,
             f"> Install `{anchor}`. It is the newest version where "
             f"every patch applied cleanly.")
     else:
+        # Better an explicit warning than a tip pointing at a version with holes in it.
         lines += ["> [!WARNING]", "> No shipped version had every patch applied."]
     lines.append("")
 
@@ -273,6 +316,12 @@ def render_notes(records, expected, recommended, tools, stable, experimental, *,
 
 
 def _normalize_list(raw):
+    """Accept a patch list as JSON or as newline-separated text.
+
+    The workflow passes EXPECTED_PATCHES as one JSON line, but a hand-run invocation
+    naturally passes a plain list. Both shapes have to work, so this sniffs rather
+    than insisting on one.
+    """
     raw = raw.strip()
     if raw.startswith("["):
         try:
@@ -290,12 +339,16 @@ def cmd_render_notes(args):
                             args.failed_dir, arch)
 
     if not records:
+        # Publishing an empty release would clear every artifact off the tag, so this
+        # is the one condition that must stop the whole run.
         sys.stderr.write(
             "::error::No APKs were produced by any patch job\n")
         sys.exit(1)
 
     keep_path = Path(args.keep_out)
     keep_path.parent.mkdir(parents=True, exist_ok=True)
+    # keep.json is the handoff between this step and record-state, which needs to know
+    # what actually shipped rather than re-deriving it from the artifacts.
     keep_path.write_text(json.dumps(records, indent=2) + "\n")
 
     expected = _normalize_list(os.environ["EXPECTED_PATCHES"])
@@ -316,8 +369,12 @@ def cmd_render_notes(args):
     versions = [r["version"] for r in records]
     vpath = Path(args.versions_out)
     vpath.parent.mkdir(parents=True, exist_ok=True)
+    # indent=2 plus a trailing newline: this file is committed to the repository, so
+    # its diffs get read by hand.
     vpath.write_text(json.dumps(versions, indent=2) + "\n")
 
+    # Also on stdout so the body and version list are readable straight from the run log
+    # without opening the artifact.
     print(body)
     print(vpath.read_text(), end="")
 
@@ -325,10 +382,19 @@ def cmd_render_notes(args):
 PROTON_ORG = "ProtonVPN"
 PROTON_REPO = "android-app"
 STATE_PATH = ".github/tags/proton-vpn.json"
+# Only these two bundles ship a Proton VPN patch set, so only a version change in one
+# of them can invalidate a patched APK. MorpheApp's own bundle is shared across apps
+# and declares nothing for Proton, so its version is recorded but never gates a rebuild.
 PROTON_TARGETING_SOURCES = ["rushiranpise", "hoo-dles"]
 
 
 def record_state(records, patcher, package, sources_map):
+    """Build the committed build record.
+
+    Per patch, the versions it applied on and the versions it failed on. Storing that
+    history is what lets the next run decide whether anything actually changed, so the
+    record has to be built from what shipped rather than from what was attempted.
+    """
     ordered = sorted(records or [], key=lambda r: version_sort_key(r["version"]),
                      reverse=True)
     versions = [r["version"] for r in ordered]
@@ -365,7 +431,14 @@ def _load_last_state(state_file):
 
 
 def gate_rebuild(last, sources_map, covered):
-    """Return 1 (no-op) when only MorpheApp / patcher changed; 0 to rebuild."""
+    """Decide whether this run has anything new to publish.
+
+    Returns 1 to skip, 0 to rebuild. The comparison is narrow on purpose: only a
+    Proton-targeting bundle moving, or the covered range changing, can alter the APKs.
+    A newer patcher or a newer MorpheApp bundle changes the recorded provenance but
+    leaves the patched output identical, so rebuilding on those would republish
+    byte-identical files twice a day.
+    """
     if not last:
         return 0
     prev_sources = last.get("sources", {}) or {}
@@ -632,9 +705,6 @@ def cmd_discover(args):
 
     doom_rec = _first_version(_java_list_versions(jar, "doom-patches.mpp", package))
     hoo_rec = _first_version(_java_list_versions(jar, "hoodles-patches.mpp", package))
-    # No fixed cap: range runs from the latest release down to the lowest
-    # version the Proton-targeting bundles still recommend (choose_cover's
-    # deepest-rec walk), bounded only by the available release list.
     covered = choose_cover(versions, [doom_rec, hoo_rec], len(versions))
     matrix, channels, _ = build_matrix(covered)
 

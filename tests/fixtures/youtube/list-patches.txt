@@ -1,6 +1,0 @@
-Name: Change installer source
-Enabled: true
-Name: Disable Play Store updates
-Enabled: true
-Name: Remove delay
-Enabled: false

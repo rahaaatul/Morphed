@@ -3,9 +3,8 @@ name: Proton VPN
 on:
   workflow_dispatch:
   schedule:
-    # Every 12 hours from 00:00 UTC. Proton is rebuilt from its own upstream
-    # state on this cadence plus manual dispatch; repository pushes no longer
-    # gate it.
+    # Every 12 hours from 00:00 UTC. Proton is rebuilt from its own upstream state on
+    # this cadence plus manual dispatch; repository pushes no longer gate it.
     - cron: '0 */12 * * *'
 
 permissions:
@@ -30,7 +29,6 @@ env:
   # measure. Reading it back out of the APK only ever produced "Universal" or, when
   # the probe came back empty, a misleading "unknown".
   ARCH: Universal
-  # One icon shared by every release.
   ICON_URL: https://raw.githubusercontent.com/rahaaatul/Morphed/main/.github/icons/download.png
   ICON_WIDTH: '20'
   STATE_FILE: .github/tags/proton-vpn.json
@@ -39,6 +37,11 @@ jobs:
   discover:
     name: Discover supported versions
     runs-on: ubuntu-24.04
+    # GitHub's default is 360 minutes, which is how long a hung java process or a
+    # stalled connection would hold a runner. A whole run finishes in about two
+    # minutes, so this leaves roughly fifteen times the observed runtime. Kept loose on
+    # purpose: a timeout that kills a legitimate slow run is worse than the hang.
+    timeout-minutes: 30
     outputs:
       matrix: ${{ steps.versions.outputs.matrix }}
       versions: ${{ steps.versions.outputs.versions }}
@@ -70,7 +73,7 @@ jobs:
           set -euo pipefail
           bash scripts/protonvpn/fetch-toolchain.sh
           # Newest tags (prereleases preferred), recorded bare (no leading "v"),
-          # which is the form proton-vpn.json uses.
+          # which is the form proton-vpn.json stores.
           patches_ver=$(gh api repos/MorpheApp/morphe-patches/releases \
             --jq '[.[] | select(.draft == false)] | sort_by(.published_at) | reverse | .[0].tag_name')
           desktop_ver=$(gh api repos/MorpheApp/morphe-desktop/releases \
@@ -85,8 +88,8 @@ jobs:
             echo "doom_ver=${doom_ver#v}"
             echo "hoo_ver=${hoo_ver#v}"
           } >> "$GITHUB_OUTPUT"
-          # The body credits each tool with the exact version it used. Names go in via
-          # --arg because an apostrophe inside the jq program breaks the shell quoting.
+          # The release body credits each tool with the exact version used. Names go in
+          # via --arg because an apostrophe inside the jq program breaks shell quoting.
           tools=$(jq -nc \
             --arg d "$desktop_ver" --arg m "$patches_ver" \
             --arg doom "$doom_ver" --arg h "$hoo_ver" \
@@ -98,8 +101,10 @@ jobs:
           echo "tools=$tools" >> "$GITHUB_OUTPUT"
 
       - name: Cache Morphe toolchain (permanent, input-only)
-        # Bundles + patcher jar are reused verbatim until their versions change.
-        # Patched APKs are never cached.
+        # Bundles and the patcher jar are reused verbatim until their versions change.
+        # Patched APKs are never cached: the release is the artifact, and a stale
+        # cached build is indistinguishable from a fresh one. Every bundle version is
+        # in the key so a new patch release can never be read out of an old cache.
         uses: actions/cache/save@v6
         with:
           path: |
@@ -124,9 +129,14 @@ jobs:
   patch:
     name: Patch ${{ matrix.version }}
     needs: discover
+    # A no-op discover pass (skip=1) means no Proton-targeting bundle changed, so
+    # rebuilding would republish byte-identical APKs.
     if: needs.discover.outputs.skip != '1'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     strategy:
+      # One version failing must not cancel the others; a partial matrix still has to
+      # be visible in the run rather than vanishing behind a cancelled fan-out.
       fail-fast: false
       matrix: ${{ fromJson(needs.discover.outputs.matrix) }}
     env:
@@ -152,8 +162,8 @@ jobs:
           key: protonvpn-toolchain-${{ env.APP_SLUG }}-${{ needs.discover.outputs.patches_ver }}-${{ needs.discover.outputs.desktop_ver }}-${{ needs.discover.outputs.doom_ver }}-${{ needs.discover.outputs.hoo_ver }}
 
       - name: Fetch toolchain on cache miss
-        # Same-run caches saved in `discover` are not guaranteed visible here, so
-        # fall back to fetching when the jar is absent.
+        # A cache saved earlier in the same run is not guaranteed to be visible to a
+        # downstream job, so the consuming job has to be able to fetch on its own.
         if: ${{ !hashFiles('morphe-desktop.jar') }}
         env:
           GH_TOKEN: ${{ github.token }}
@@ -171,6 +181,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p apk-cache
+          # Proton's originals are served from its own GitHub releases rather than
+          # APKMirror, but they are still large enough to be worth keeping per version.
           if [[ -s "apk-cache/protonvpn-${{ matrix.version }}.apk" ]]; then
             echo "reusing cached original for ${{ matrix.version }}"
             exit 0
@@ -181,7 +193,13 @@ jobs:
                      | "\(.browser_download_url) \(.size)"')
           [[ "$url" == "http"* && "$size" =~ ^[0-9]+$ ]] \
             || { echo "::error::could not resolve the direct-release APK"; exit 1; }
-          curl -fsSL -o "apk-cache/protonvpn-${{ matrix.version }}.apk" "$url"
+          # Retry covers a dropped connection or a rate-limited API. --retry-max-time
+          # caps the whole download at 5 minutes so a server that accepts the
+          # connection and then goes silent cannot hold the job until its timeout.
+          # Not --retry-all-errors: a 404 or a forbidden token will never succeed on a
+          # second attempt, and retrying only buries the real cause.
+          curl -fsSL --retry 5 --retry-delay 2 --retry-connrefused --retry-max-time 300 \
+            -o "apk-cache/protonvpn-${{ matrix.version }}.apk" "$url"
           got=$(stat -c%s "apk-cache/protonvpn-${{ matrix.version }}.apk")
           # A truncated download makes the patcher emit an empty result, which looks
           # identical to "this version is not supported" and drops it silently.
@@ -212,8 +230,8 @@ jobs:
       - name: Patch APK
         run: |
           set -euo pipefail
-          # No --striplibs: Proton publishes a single universal APK carrying every ABI
-          # it supports, so there is no per-architecture variant to pick and stripping
+          # No --striplibs: Proton publishes a single universal APK carrying every ABI it
+          # supports, so there is no per-architecture variant to pick and stripping
           # would needlessly break other devices.
           #
           # --force skips the APK version compatibility check, so a patch is attempted
@@ -223,8 +241,8 @@ jobs:
           # --continue-on-error keeps a partial result usable: a patch that cannot match
           # its fingerprint is recorded as failed rather than aborting the build.
           #
-          # Output is not captured, so the patcher's own Applied and FAILED lines stay
-          # in this leg's log where they can be checked against the published body.
+          # Output is not captured, so the patcher's own Applied and FAILED lines stay in
+          # this leg's log where they can be checked against the published body.
           java -jar morphe-desktop.jar patch \
             --patches=morphe-patches.mpp \
             --patches=doom-patches.mpp \
@@ -254,6 +272,9 @@ jobs:
           if-no-files-found: error
 
       - name: Upload applied patch list
+        # retention-days: 1 because these are transit data, and the APKs live on the
+        # release. if-no-files-found: error turns a missing applied-<version>.txt into a
+        # failed run instead of a version that silently vanishes from the body.
         uses: actions/upload-artifact@v7.0.1
         with:
           name: applied-${{ matrix.version }}
@@ -272,9 +293,12 @@ jobs:
   release:
     name: Publish release
     needs: [discover, patch]
-    # Skips on a no-op discover pass (skip=1) and on any patch failure.
+    # always() so a matrix failure still reaches this job and reports itself. The two
+    # guards keep it from publishing: on a no-op discover pass, and when any patch leg
+    # failed. A partial matrix must never reach the release.
     if: always() && needs.discover.outputs.skip != '1' && needs.patch.result == 'success'
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
       - name: Checkout
         uses: actions/checkout@v6.0.2
@@ -327,13 +351,18 @@ jobs:
           artifacts: |
             release/*.apk
           allowUpdates: true
+          # Correct only because the pipeline republishes its whole version range every
+          # run. If it ever publishes just the newly discovered versions, this must
+          # become a keep-list reconcile or it will delete every version it skipped.
           removeArtifacts: true
           prerelease: false
+          # Proton is not the repository's headline release, so it must not displace
+          # whatever GitHub currently marks as latest.
           makeLatest: false
 
       - name: Record patch state
-        # Step-scoped env does not carry over, so the values the state record needs
-        # are declared here rather than inherited from the step above.
+        # Step-scoped env does not carry over, so the values the state record needs are
+        # declared again here rather than inherited from the step above.
         env:
           GH_TOKEN: ${{ github.token }}
           PATCHER: ${{ needs.discover.outputs.patcher }}
@@ -351,7 +380,8 @@ jobs:
         run: |
           set -uo pipefail
           # The APKs now live on the release, so the run artifacts are redundant and can
-          # be several hundred megabytes. Retention is only a backstop.
+          # be several hundred megabytes. Retention is only a backstop. Strict mode is
+          # off on -e so one failed delete cannot strand the rest.
           ids=$(gh api "repos/${REPO_FULL}/actions/runs/${GITHUB_RUN_ID}/artifacts" \
                 --paginate --jq '.artifacts[].id')
           if [[ -z "$ids" ]]; then
