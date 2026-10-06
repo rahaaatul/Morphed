@@ -26,5 +26,5 @@ jobs:
           cache: pip
       - name: Install requests
         run: pip install requests
-      - name: Validate YouTube script syntax
-        run: python3 -m py_compile .github/scripts/youtube.py
+      - name: Run tests
+        run: python3 -m unittest discover -s tests -t . -p '*_test.py'
