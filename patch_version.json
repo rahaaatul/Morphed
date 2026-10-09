@@ -1033,6 +1033,42 @@
               "9.20.53",
               "9.15.51"
             ]
+          },
+          "reddit": {
+            "org": "redditinc",
+            "repo": "reddit",
+            "package": "com.reddit.frontpage",
+            "desktop": "1.18.1-dev.5",
+            "patches_applied": [
+              "App icon",
+              "Change installer source",
+              "Custom font",
+              "Disable Play Store updates",
+              "Disable modern home",
+              "Disable screenshot popup",
+              "Force system font",
+              "Hide Ask button",
+              "Hide Trending shelves",
+              "Hide ads",
+              "Hide communities shelf",
+              "Hide navigation buttons",
+              "Hide sidebar components",
+              "Open links directly",
+              "Open links externally",
+              "Remove subreddit dialog",
+              "Sanitize sharing links",
+              "Show view count",
+              "Spoof signature",
+              "Start as guest"
+            ],
+            "patches_failed": [],
+            "versions": [
+              "2026.40.0",
+              "2026.39.0",
+              "2026.38.0",
+              "2026.24.0",
+              "2026.10.0"
+            ]
           }
         }
       }
